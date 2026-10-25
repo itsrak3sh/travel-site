@@ -4,9 +4,10 @@ import {
   LocateFixed, Car, Bike, CarTaxiFront,
   PhoneCall, PhoneOff, CheckCircle2, Radio, Copy,
   ShieldCheck, ArrowUpDown, MessageSquare, Share2,
-  RotateCcw
+  RotateCcw, Database
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { insertTripRecord, subscribeToTripBids } from '../lib/supabaseService';
 
 interface RideCategory {
   id: 'bike' | 'auto' | 'mini' | 'sedan';
@@ -44,6 +45,8 @@ export const QuickRideView: React.FC = () => {
   const [pickupOtp, setPickupOtp] = useState<string>('7419');
   const [copiedOtp, setCopiedOtp] = useState<boolean>(false);
   const [callingDriver, setCallingDriver] = useState<boolean>(false);
+  const [supabaseTripId, setSupabaseTripId] = useState<string | null>(null);
+  const [supabaseSyncStatus, setSupabaseSyncStatus] = useState<string>('idle');
 
   // Ride Categories (Uber / Rapido Style Instant Dispatch Model)
   const categories: RideCategory[] = [
@@ -149,11 +152,44 @@ export const QuickRideView: React.FC = () => {
     setDropoff(temp);
   };
 
-  // Start instant dispatch flow
-  const handleStartDispatch = () => {
+  // Start instant dispatch flow (Flow 1: Insert into 'trips' table with status 'searching')
+  const handleStartDispatch = async () => {
     setDispatchState('searching');
     setCountdown(15);
+    setSupabaseSyncStatus('syncing');
+
+    try {
+      const { trip, error } = await insertTripRecord({
+        bookingMode: 'quick',
+        pickup,
+        destination: dropoff,
+        vehiclePreference: selectedCategory,
+        pickupOtp,
+      });
+
+      if (trip?.id) {
+        setSupabaseTripId(trip.id);
+        setSupabaseSyncStatus('synced');
+      } else if (error) {
+        setSupabaseSyncStatus('local-fallback');
+      }
+    } catch {
+      setSupabaseSyncStatus('local-fallback');
+    }
   };
+
+  // Flow 1: Subscribe via Supabase Realtime to 'bids' table for changes on this trip_id
+  useEffect(() => {
+    if (!supabaseTripId || dispatchState !== 'searching') return;
+
+    const unsubscribe = subscribeToTripBids(supabaseTripId, (_incomingBid) => {
+      handleDriverAssigned();
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [supabaseTripId, dispatchState]);
 
   // Driver Assignment Trigger
   const handleDriverAssigned = () => {
@@ -228,15 +264,23 @@ export const QuickRideView: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-white/70 bg-white/[0.04] px-3.5 py-1.5 rounded-full border border-white/10 font-light">
-          <Radio className="w-3.5 h-3.5 text-teal-300" />
-          <span>
-            {dispatchState === 'assigned'
-              ? 'Driver Assigned • En Route'
-              : dispatchState === 'searching'
-              ? `Finding Driver (${countdown}s)`
-              : 'Instant Upfront Dispatch'}
-          </span>
+        <div className="flex items-center gap-2 flex-wrap">
+          {supabaseSyncStatus === 'synced' && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-mono text-emerald-300 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+              <Database className="w-3 h-3" />
+              Supabase 'trips' Synced
+            </span>
+          )}
+          <div className="flex items-center gap-2 text-xs text-white/70 bg-white/[0.04] px-3.5 py-1.5 rounded-full border border-white/10 font-light">
+            <Radio className="w-3.5 h-3.5 text-teal-300" />
+            <span>
+              {dispatchState === 'assigned'
+                ? 'Driver Assigned • En Route'
+                : dispatchState === 'searching'
+                ? `Finding Driver (${countdown}s)`
+                : 'Instant Upfront Dispatch'}
+            </span>
+          </div>
         </div>
       </div>
 

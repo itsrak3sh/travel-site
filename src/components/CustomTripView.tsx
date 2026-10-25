@@ -1197,10 +1197,15 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
               </div>
 
               {/* Bids List Header */}
-              <div className="flex items-center justify-between text-xs text-slate-400 px-1">
-                <span className="font-light tracking-wider uppercase text-emerald-300 text-[11px]">
-                  Incoming Chauffeur Quotes ({visibleBidsCount} of 4)
-                </span>
+              <div className="flex items-center justify-between text-xs text-slate-400 px-1 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-light tracking-wider uppercase text-emerald-300 text-[11px]">
+                    Incoming Chauffeur Quotes ({displayedBids.length})
+                  </span>
+                  <span className="text-[10px] font-mono bg-emerald-500/10 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+                    Supabase Realtime 'bids'
+                  </span>
+                </div>
                 <span className="font-light">Select quote to lock securely in escrow</span>
               </div>
 
@@ -1238,7 +1243,7 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
                           </span>
                           {bid.isLoggedInPartner && (
                             <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30 font-medium">
-                              LIVE PARTNER QUOTE (YOU)
+                              LIVE PARTNER QUOTE (SUPABASE)
                             </span>
                           )}
                         </div>

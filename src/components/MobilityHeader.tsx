@@ -1,38 +1,24 @@
 import React from 'react';
-import { Car, Zap, MapPin, User, ChevronRight, Menu, X, Shield } from 'lucide-react';
+import { Car, Zap, MapPin, User } from 'lucide-react';
 import { MobilityMode } from '../types/mobility';
 
 interface MobilityHeaderProps {
   activeMode: MobilityMode;
   onModeChange: (mode: MobilityMode) => void;
-  onOpenDriverModal: () => void;
+  onNavigateHome?: () => void;
   onOpenAuthModal: () => void;
   userLoggedIn?: boolean;
   userName?: string;
-  driverLoggedIn?: boolean;
-  driverName?: string;
-  driverPlate?: string;
-  driverWalletBalance?: number;
-  driverIsOnline?: boolean;
-  pendingTripRequestsCount?: number;
 }
 
 export const MobilityHeader: React.FC<MobilityHeaderProps> = ({
   activeMode,
   onModeChange,
-  onOpenDriverModal,
+  onNavigateHome,
   onOpenAuthModal,
   userLoggedIn = false,
   userName = 'Alex Rider',
-  driverLoggedIn = false,
-  driverName = 'Rajesh Kumar',
-  driverPlate = 'DL 01 AB 4829',
-  driverWalletBalance = 4850,
-  driverIsOnline = true,
-  pendingTripRequestsCount = 0,
 }) => {
-  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
-
   return (
     <header className="sticky top-0 z-50 bg-black/60 backdrop-blur-2xl border-b border-white/[0.08] transition-all">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -40,7 +26,16 @@ export const MobilityHeader: React.FC<MobilityHeaderProps> = ({
           
           {/* 1. Brand Logo: GoRide / ApexMobility with Sleek Quiet Luxury Vibe */}
           <div className="flex items-center gap-3">
-            <a href="#" className="flex items-center gap-3 group">
+            <a 
+              href="/" 
+              onClick={(e) => {
+                if (onNavigateHome) {
+                  e.preventDefault();
+                  onNavigateHome();
+                }
+              }}
+              className="flex items-center gap-3 group"
+            >
               <div className="relative">
                 <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-500/80 to-teal-700/80 flex items-center justify-center shadow-lg shadow-emerald-950/40 border border-white/15 group-hover:scale-105 transition-all">
                   <Car className="w-5 h-5 text-white stroke-[2.2]" />
@@ -110,74 +105,16 @@ export const MobilityHeader: React.FC<MobilityHeaderProps> = ({
             </button>
           </div>
 
-          {/* 3. Top Right Actions: Driver Partner & Login / Signup */}
-          <div className="hidden lg:flex items-center gap-3">
-            {/* Driver Partner Trigger / Duty Dashboard */}
-            <button
-              onClick={onOpenDriverModal}
-              title={driverLoggedIn ? `${driverName} (${driverPlate}) • Duty Dashboard` : 'Drive with GoRide / Apex Partner'}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all hover:scale-[1.02] active:scale-98 ${
-                driverLoggedIn
-                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-md shadow-emerald-950/20'
-                  : 'text-slate-300 hover:text-white bg-white/[0.03] hover:bg-white/[0.07] border border-white/10'
-              }`}
-            >
-              {driverLoggedIn ? (
-                <>
-                  <span className={`w-1.5 h-1.5 rounded-full ${driverIsOnline ? 'bg-emerald-400' : 'bg-slate-500'}`} />
-                  <span>{driverName.split(' ')[0]} ({driverIsOnline ? 'Duty Online' : 'Duty Off'})</span>
-                  <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-medium">
-                    ₹{driverWalletBalance}
-                  </span>
-                  {pendingTripRequestsCount > 0 && (
-                    <span className="text-[10px] font-mono bg-emerald-400 text-slate-950 font-bold px-1.5 py-0.2 rounded-full">
-                      {pendingTripRequestsCount} Request
-                    </span>
-                  )}
-                </>
-              ) : (
-                <>
-                  <Shield className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Driver Partner</span>
-                  <span className="text-[10px] font-mono bg-emerald-500/15 text-emerald-300 px-1.5 py-0.5 rounded-full border border-emerald-500/20">
-                    85% Net
-                  </span>
-                  {pendingTripRequestsCount > 0 && (
-                    <span className="text-[10px] font-mono bg-emerald-400 text-slate-950 font-bold px-1.5 py-0.2 rounded-full">
-                      1 Request
-                    </span>
-                  )}
-                </>
-              )}
-            </button>
-
-            {/* Login / Signup Modal Trigger */}
+          {/* 3. Top Right Action: Clean Sign In Button */}
+          <div className="flex items-center gap-3">
             <button
               onClick={onOpenAuthModal}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-white font-medium text-xs sm:text-sm border border-white/10 transition-all shadow-sm"
             >
               <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-300">
-                <User className="w-3 h-3" />
+                <User className="w-3.5 h-3.5" />
               </div>
               <span className="font-light">{userLoggedIn ? userName : 'Sign In'}</span>
-            </button>
-          </div>
-
-          {/* Mobile hamburger menu toggle */}
-          <div className="flex items-center gap-2 md:hidden">
-            <button
-              onClick={() => onModeChange(activeMode === 'custom-trip' ? 'quick-ride' : 'custom-trip')}
-              className="px-3 py-1.5 rounded-xl bg-white/[0.05] text-emerald-300 text-xs font-medium border border-white/10 flex items-center gap-1"
-            >
-              {activeMode === 'custom-trip' ? 'Custom (M1)' : 'Quick (M2)'}
-            </button>
-
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 text-slate-300 hover:text-white rounded-xl bg-white/[0.04] border border-white/10"
-              aria-label="Toggle Navigation"
-            >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
         </div>
@@ -208,42 +145,6 @@ export const MobilityHeader: React.FC<MobilityHeaderProps> = ({
           </button>
         </div>
       </div>
-
-      {/* Mobile Drawer */}
-      {mobileMenuOpen && (
-        <div className="lg:hidden bg-black/90 backdrop-blur-2xl border-b border-white/10 p-6 space-y-4 animate-fade-in">
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onOpenDriverModal();
-              }}
-              className="w-full flex items-center justify-between p-3.5 rounded-xl bg-white/[0.04] border border-white/10 text-slate-200 hover:text-white font-medium text-sm"
-            >
-              <div className="flex items-center gap-2.5">
-                <Shield className="w-4 h-4 text-emerald-300" />
-                <span>
-                  {driverLoggedIn 
-                    ? `🟢 ${driverName} (Duty Dashboard • ₹${driverWalletBalance})` 
-                    : 'Driver Partner Dashboard'}
-                </span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-slate-500" />
-            </button>
-
-            <button
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onOpenAuthModal();
-              }}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/10 text-white font-medium text-sm border border-white/15 shadow-lg shadow-black/40"
-            >
-              <User className="w-4 h-4 text-emerald-300" />
-              <span>{userLoggedIn ? userName : 'Sign In / Register'}</span>
-            </button>
-          </div>
-        </div>
-      )}
     </header>
   );
 };

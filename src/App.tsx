@@ -1,19 +1,58 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MobilityHeader } from './components/MobilityHeader';
 import { MobilityHero } from './components/MobilityHero';
 import { CustomTripView } from './components/CustomTripView';
 import { QuickRideView } from './components/QuickRideView';
+import { DriverRadarView } from './components/DriverRadarView';
 import { AuthModal } from './components/AuthModal';
 import { DriverPartnerModal, DriverProfileData } from './components/DriverPartnerModal';
 import { MobilityFooter } from './components/MobilityFooter';
 import { MobilityMode, SharedActiveTrip, DriverBidItem, IntermediateStopItem } from './types/mobility';
+import { 
+  insertTripRecord, 
+  subscribeToTripBids, 
+  subscribeToSearchingTrips, 
+  insertDriverBid,
+  generateUUID 
+} from './lib/supabaseService';
 
 export function App() {
+  // Direct route detection: support '/driver' route directly
+  const getInitialView = (): 'customer' | 'driver' => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/driver')) {
+      return 'driver';
+    }
+    return 'customer';
+  };
+
+  const [currentAppView, setCurrentAppView] = useState<'customer' | 'driver'>(getInitialView);
   const [activeMode, setActiveMode] = useState<MobilityMode>('custom-trip');
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [driverModalOpen, setDriverModalOpen] = useState(false);
   const [userLoggedIn, setUserLoggedIn] = useState(false);
   const [userName, setUserName] = useState('Alex Rider');
+
+  // Handle browser Back / Forward navigation and direct URL route changes
+  useEffect(() => {
+    const handlePopState = () => {
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/driver')) {
+        setCurrentAppView('driver');
+      } else {
+        setCurrentAppView('customer');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const handleToggleAppView = (view: 'customer' | 'driver') => {
+    setCurrentAppView(view);
+    const targetPath = view === 'driver' ? '/driver' : '/';
+    if (typeof window !== 'undefined' && window.location.pathname !== targetPath) {
+      window.history.pushState({}, '', targetPath);
+    }
+  };
 
   // Driver Login & Duty Session State (persisted in localStorage)
   const [driverLoggedIn, setDriverLoggedIn] = useState<boolean>(() => {
@@ -106,8 +145,8 @@ export function App() {
     setUserName(name);
   };
 
-  // 1. Customer submits Step 5 -> Broadcast trip to shared pool
-  const handleCustomerBroadcastTrip = (data: {
+  // FLOW 1: Customer submits Step 5 -> Insert into 'trips' table with status 'searching' & broadcast
+  const handleCustomerBroadcastTrip = async (data: {
     pickup: string;
     destination: string;
     stops: IntermediateStopItem[];
@@ -116,8 +155,26 @@ export function App() {
     specialNotes: string;
     initialBids: DriverBidItem[];
   }) => {
-    setSharedTrip((prev) => ({
-      id: `TRIP-${Date.now()}`,
+    const currentPickupOtp = sharedTrip?.pickupOtp || '4821';
+    const currentDropOtp = sharedTrip?.dropoffOtp || '9245';
+
+    // 1. Insert record into Supabase 'trips' table
+    const { trip } = await insertTripRecord({
+      bookingMode: 'custom',
+      pickup: data.pickup,
+      destination: data.destination,
+      stops: data.stops,
+      vehiclePreference: data.selectedVehicle,
+      driverAgePref: data.driverAgePref,
+      specialNotes: data.specialNotes,
+      pickupOtp: currentPickupOtp,
+      dropoffOtp: currentDropOtp,
+    });
+
+    const activeTripId = trip?.id || generateUUID();
+
+    setSharedTrip({
+      id: activeTripId,
       riderName: userName || 'Alex Rider',
       pickup: data.pickup,
       destination: data.destination,
@@ -126,16 +183,78 @@ export function App() {
       driverAgePref: data.driverAgePref,
       specialNotes: data.specialNotes,
       status: 'broadcasting',
-      pickupOtp: prev?.pickupOtp || '4821',
-      dropoffOtp: prev?.dropoffOtp || '9245',
+      pickupOtp: currentPickupOtp,
+      dropoffOtp: currentDropOtp,
       bids: data.initialBids,
       matchedBid: null,
       escrowStatus: 'none',
-    }));
+    });
   };
 
-  // 2. Driver inputs offer and clicks "Submit Quote" -> Appends quote to customer's live bids
-  const handleDriverSubmitBid = (offerAmount: number) => {
+  // FLOW 1: Subscribe via Supabase Realtime to 'bids' table for changes on this trip_id so received bids update live on UI
+  useEffect(() => {
+    if (!sharedTrip?.id || sharedTrip.status !== 'broadcasting') return;
+
+    const unsubscribe = subscribeToTripBids(sharedTrip.id, (incomingBid) => {
+      setSharedTrip((prev) => {
+        if (!prev || prev.id !== sharedTrip.id) return prev;
+        const exists = prev.bids.some((b) => b.id === incomingBid.id);
+        if (exists) {
+          return {
+            ...prev,
+            bids: prev.bids.map((b) => (b.id === incomingBid.id ? incomingBid : b)),
+          };
+        }
+        return {
+          ...prev,
+          bids: [incomingBid, ...prev.bids],
+        };
+      });
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [sharedTrip?.id, sharedTrip?.status]);
+
+  // FLOW 2: Driver Radar - Subscribe to 'trips' table for status = 'searching'
+  useEffect(() => {
+    if (!driverLoggedIn || !driverProfile.isOnline) return;
+
+    const unsubscribe = subscribeToSearchingTrips((searchingTrip) => {
+      setSharedTrip((prev) => {
+        // If already tracking this trip, don't overwrite local bidding state
+        if (prev?.id === searchingTrip.id && prev.status === 'broadcasting') {
+          return prev;
+        }
+        return {
+          id: searchingTrip.id,
+          riderName: 'Alex Rider',
+          pickup: searchingTrip.pickup_location,
+          destination: searchingTrip.drop_location,
+          stops: searchingTrip.route_stops || [],
+          selectedVehicleTier: searchingTrip.vehicle_preference || 'sedan',
+          driverAgePref: searchingTrip.driver_age_preference || 'any',
+          specialNotes: searchingTrip.special_notes || '',
+          status: 'broadcasting',
+          pickupOtp: searchingTrip.pickup_otp || '4821',
+          dropoffOtp: searchingTrip.drop_otp || '9245',
+          bids: prev?.id === searchingTrip.id ? prev.bids : [],
+          matchedBid: null,
+          escrowStatus: 'none',
+        };
+      });
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [driverLoggedIn, driverProfile.isOnline]);
+
+  // FLOW 2: Driver clicks 'Offer Fare' / 'Submit Quote' -> Insert record into 'bids' table with quoted_fare and eta_minutes
+  const handleDriverSubmitBid = async (offerAmount: number) => {
+    const activeTripId = sharedTrip?.id || generateUUID();
+
     const newBid: DriverBidItem = {
       id: `bid-partner-${Date.now()}`,
       name: driverProfile.name,
@@ -149,7 +268,7 @@ export function App() {
       quotedFareINR: offerAmount,
       etaMinutes: 3,
       distanceKm: 0.9,
-      badge: '★ Your Live Partner Quote',
+      badge: '★ Your Live Partner Quote (Supabase)',
       verified: true,
       isLoggedInPartner: true,
     };
@@ -161,6 +280,16 @@ export function App() {
         status: 'broadcasting',
         bids: [newBid, ...prev.bids.filter((b) => !b.isLoggedInPartner)],
       };
+    });
+
+    // Insert into Supabase 'bids' table
+    await insertDriverBid({
+      tripId: activeTripId,
+      quotedFare: offerAmount,
+      etaMinutes: 3,
+      driverName: driverProfile.name,
+      vehicleModel: driverProfile.vehicleModel,
+      vehiclePlate: driverProfile.vehiclePlate,
     });
   };
 
@@ -254,39 +383,54 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-dark-950 font-sans text-slate-100 selection:bg-emerald-500 selection:text-slate-950 flex flex-col justify-between">
-      {/* 1. Main Navigation Header */}
+      {/* 1. Clean Main Navigation Header */}
       <MobilityHeader
         activeMode={activeMode}
-        onModeChange={setActiveMode}
-        onOpenDriverModal={() => setDriverModalOpen(true)}
+        onModeChange={(mode) => {
+          setActiveMode(mode);
+          if (currentAppView !== 'customer') {
+            handleToggleAppView('customer');
+          }
+        }}
+        onNavigateHome={() => handleToggleAppView('customer')}
         onOpenAuthModal={() => setAuthModalOpen(true)}
         userLoggedIn={userLoggedIn}
         userName={userName}
-        driverLoggedIn={driverLoggedIn}
-        driverName={driverProfile.name}
-        driverPlate={driverProfile.vehiclePlate}
-        driverWalletBalance={driverProfile.walletBalance}
-        driverIsOnline={driverProfile.isOnline}
-        pendingTripRequestsCount={sharedTrip?.status === 'broadcasting' ? 1 : 0}
       />
 
-      {/* 2. Cinematic Highway Night Driving Video Loop Hero Section */}
+      {/* 2. Main Viewport: Swappable between Customer View (/) and Driver Radar View (/driver) */}
       <main className="flex-1">
-        <MobilityHero activeMode={activeMode} onModeChange={setActiveMode}>
-          {activeMode === 'custom-trip' ? (
-            <CustomTripView
-              sharedTrip={sharedTrip}
-              onBroadcastTrip={handleCustomerBroadcastTrip}
-              onCustomerConfirmRide={handleCustomerConfirmRide}
-              onCustomerVerifyPickupOtp={handleVerifyPickupOtp}
-              onCustomerVerifyDropoffOtp={handleVerifyDropoffOtp}
-              onResetTrip={handleResetTrip}
-              riderName={userName}
-            />
-          ) : (
-            <QuickRideView />
-          )}
-        </MobilityHero>
+        {currentAppView === 'driver' ? (
+          <DriverRadarView
+            driverProfile={driverProfile}
+            driverLoggedIn={driverLoggedIn}
+            onDriverLogin={handleDriverLogin}
+            onDriverLogout={handleDriverLogout}
+            onUpdateDriverDuty={handleUpdateDriverDuty}
+            sharedTrip={sharedTrip}
+            onDriverSubmitBid={handleDriverSubmitBid}
+            onVerifyPickupOtp={handleVerifyPickupOtp}
+            onVerifyDropoffOtp={handleVerifyDropoffOtp}
+            onResetTrip={handleResetTrip}
+            onSwitchToCustomerView={() => handleToggleAppView('customer')}
+          />
+        ) : (
+          <MobilityHero activeMode={activeMode} onModeChange={setActiveMode}>
+            {activeMode === 'custom-trip' ? (
+              <CustomTripView
+                sharedTrip={sharedTrip}
+                onBroadcastTrip={handleCustomerBroadcastTrip}
+                onCustomerConfirmRide={handleCustomerConfirmRide}
+                onCustomerVerifyPickupOtp={handleVerifyPickupOtp}
+                onCustomerVerifyDropoffOtp={handleVerifyDropoffOtp}
+                onResetTrip={handleResetTrip}
+                riderName={userName}
+              />
+            ) : (
+              <QuickRideView />
+            )}
+          </MobilityHero>
+        )}
       </main>
 
       {/* 3. Sleek Dark Cab-Tech Footer */}
