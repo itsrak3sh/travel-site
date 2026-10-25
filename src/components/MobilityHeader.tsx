@@ -1,10 +1,12 @@
 import React from 'react';
-import { Car, Zap, MapPin, User } from 'lucide-react';
+import { Car, Zap, MapPin, User, Radio } from 'lucide-react';
 import { MobilityMode } from '../types/mobility';
 
 interface MobilityHeaderProps {
   activeMode: MobilityMode;
   onModeChange: (mode: MobilityMode) => void;
+  currentAppView?: 'customer' | 'driver';
+  onNavigateView?: (view: 'customer' | 'driver') => void;
   onNavigateHome?: () => void;
   onOpenAuthModal: () => void;
   userLoggedIn?: boolean;
@@ -14,11 +16,21 @@ interface MobilityHeaderProps {
 export const MobilityHeader: React.FC<MobilityHeaderProps> = ({
   activeMode,
   onModeChange,
+  currentAppView = 'customer',
+  onNavigateView,
   onNavigateHome,
   onOpenAuthModal,
   userLoggedIn = false,
   userName = 'Alex Rider',
 }) => {
+  const handleNav = (view: 'customer' | 'driver') => {
+    if (onNavigateView) {
+      onNavigateView(view);
+    } else if (view === 'customer' && onNavigateHome) {
+      onNavigateHome();
+    }
+  };
+
   return (
     <header className="sticky top-0 z-50 bg-black/60 backdrop-blur-2xl border-b border-white/[0.08] transition-all">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -29,10 +41,8 @@ export const MobilityHeader: React.FC<MobilityHeaderProps> = ({
             <a 
               href="/" 
               onClick={(e) => {
-                if (onNavigateHome) {
-                  e.preventDefault();
-                  onNavigateHome();
-                }
+                e.preventDefault();
+                handleNav('customer');
               }}
               className="flex items-center gap-3 group"
             >
@@ -68,44 +78,73 @@ export const MobilityHeader: React.FC<MobilityHeaderProps> = ({
             </a>
           </div>
 
-          {/* 2. Mode Switch Tabs: Custom Trip (Method 1) vs Quick Ride (Method 2) */}
-          <div className="hidden md:flex items-center p-1 bg-white/[0.03] rounded-2xl border border-white/10 shadow-inner backdrop-blur-md">
-            <button
-              onClick={() => onModeChange('custom-trip')}
-              className={`relative flex items-center gap-2.5 px-5 py-2 rounded-xl font-medium text-xs sm:text-sm transition-all duration-300 ${
-                activeMode === 'custom-trip'
-                  ? 'bg-white/10 text-white shadow-md shadow-black/40 border border-white/15'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]'
-              }`}
-            >
-              <MapPin className={`w-3.5 h-3.5 ${activeMode === 'custom-trip' ? 'text-emerald-300' : 'text-slate-400'}`} />
-              <div className="text-left">
-                <span className="block leading-tight text-xs font-semibold">Custom Trip</span>
-                <span className="text-[10px] text-slate-400 font-light block">
-                  Method 1 • Multi-Stop
-                </span>
-              </div>
-            </button>
+          {/* 2. Primary Role Navigation: "Book Ride" vs "Driver Partner" */}
+          <div className="hidden md:flex items-center gap-3">
+            <div className="flex items-center p-1 bg-white/[0.04] rounded-2xl border border-white/10 shadow-inner backdrop-blur-md">
+              {/* Book Ride Button */}
+              <button
+                type="button"
+                onClick={() => handleNav('customer')}
+                className={`relative flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-xs sm:text-sm transition-all duration-300 ${
+                  currentAppView === 'customer'
+                    ? 'bg-gradient-to-r from-emerald-500/90 to-teal-500/90 text-black font-semibold shadow-md shadow-emerald-500/20'
+                    : 'text-white/60 hover:text-white hover:bg-white/[0.04] font-light'
+                }`}
+              >
+                <Car className="w-4 h-4" />
+                <span>Book Ride</span>
+              </button>
 
-            <button
-              onClick={() => onModeChange('quick-ride')}
-              className={`relative flex items-center gap-2.5 px-5 py-2 rounded-xl font-medium text-xs sm:text-sm transition-all duration-300 ${
-                activeMode === 'quick-ride'
-                  ? 'bg-white/10 text-white shadow-md shadow-black/40 border border-white/15'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]'
-              }`}
-            >
-              <Zap className={`w-3.5 h-3.5 ${activeMode === 'quick-ride' ? 'text-emerald-300' : 'text-slate-400'}`} />
-              <div className="text-left">
-                <span className="block leading-tight text-xs font-semibold">Quick Ride</span>
-                <span className="text-[10px] text-slate-400 font-light block">
-                  Method 2 • Instant
+              {/* Driver Partner Button (navigates to /driver) */}
+              <button
+                type="button"
+                onClick={() => handleNav('driver')}
+                className={`relative flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-xs sm:text-sm transition-all duration-300 ${
+                  currentAppView === 'driver'
+                    ? 'bg-gradient-to-r from-teal-400 to-cyan-400 text-black font-semibold shadow-md shadow-cyan-500/20'
+                    : 'text-white/60 hover:text-white hover:bg-white/[0.04] font-light'
+                }`}
+              >
+                <Radio className={`w-3.5 h-3.5 ${currentAppView === 'driver' ? 'text-black' : 'text-teal-300 animate-pulse'}`} />
+                <span>Driver Partner</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                  currentAppView === 'driver' ? 'bg-black/20 text-black font-bold' : 'bg-teal-500/20 text-teal-300'
+                }`}>
+                  /driver
                 </span>
+              </button>
+            </div>
+
+            {/* Sub-mode pills when on Customer Booking view */}
+            {currentAppView === 'customer' && (
+              <div className="hidden xl:flex items-center p-1 bg-white/[0.02] rounded-2xl border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => onModeChange('custom-trip')}
+                  className={`px-3 py-1.5 rounded-xl text-xs transition-all ${
+                    activeMode === 'custom-trip'
+                      ? 'bg-white/10 text-white font-medium shadow-sm border border-white/15'
+                      : 'text-white/40 hover:text-white font-light'
+                  }`}
+                >
+                  Custom (M1)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onModeChange('quick-ride')}
+                  className={`px-3 py-1.5 rounded-xl text-xs transition-all ${
+                    activeMode === 'quick-ride'
+                      ? 'bg-white/10 text-white font-medium shadow-sm border border-white/15'
+                      : 'text-white/40 hover:text-white font-light'
+                  }`}
+                >
+                  Quick (M2)
+                </button>
               </div>
-            </button>
+            )}
           </div>
 
-          {/* 3. Top Right Action: Clean Sign In Button */}
+          {/* 3. Top Right Action: Clean Customer Sign In Button */}
           <div className="flex items-center gap-3">
             <button
               onClick={onOpenAuthModal}
@@ -119,30 +158,61 @@ export const MobilityHeader: React.FC<MobilityHeaderProps> = ({
           </div>
         </div>
 
-        {/* Mobile secondary tab bar for easy switching */}
-        <div className="md:hidden py-2.5 flex items-center gap-2 border-t border-white/[0.06]">
-          <button
-            onClick={() => onModeChange('custom-trip')}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
-              activeMode === 'custom-trip'
-                ? 'bg-white/10 text-white border border-white/15'
-                : 'text-slate-400 bg-white/[0.02] border border-transparent'
-            }`}
-          >
-            <MapPin className="w-3.5 h-3.5 text-emerald-300" />
-            <span>Custom Trip</span>
-          </button>
-          <button
-            onClick={() => onModeChange('quick-ride')}
-            className={`flex-1 py-2 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
-              activeMode === 'quick-ride'
-                ? 'bg-white/10 text-white border border-white/15'
-                : 'text-slate-400 bg-white/[0.02] border border-transparent'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5 text-emerald-300" />
-            <span>Quick Ride</span>
-          </button>
+        {/* Mobile secondary tab bar for role navigation and ride modes */}
+        <div className="md:hidden py-2 flex flex-col gap-2 border-t border-white/[0.06]">
+          {/* Row 1: Book Ride vs Driver Partner */}
+          <div className="grid grid-cols-2 gap-1.5 p-1 bg-black/50 rounded-xl border border-white/10">
+            <button
+              onClick={() => handleNav('customer')}
+              className={`py-1.5 px-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
+                currentAppView === 'customer'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-semibold shadow-sm'
+                  : 'text-white/60 hover:text-white'
+              }`}
+            >
+              <Car className="w-3.5 h-3.5" />
+              <span>Book Ride</span>
+            </button>
+            <button
+              onClick={() => handleNav('driver')}
+              className={`py-1.5 px-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
+                currentAppView === 'driver'
+                  ? 'bg-gradient-to-r from-teal-400 to-cyan-400 text-black font-semibold shadow-sm'
+                  : 'text-white/60 hover:text-white'
+              }`}
+            >
+              <Radio className="w-3.5 h-3.5" />
+              <span>Driver Partner</span>
+            </button>
+          </div>
+
+          {/* Row 2: Customer Sub-mode tabs */}
+          {currentAppView === 'customer' && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onModeChange('custom-trip')}
+                className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
+                  activeMode === 'custom-trip'
+                    ? 'bg-white/10 text-white border border-white/15'
+                    : 'text-slate-400 bg-white/[0.02] border border-transparent'
+                }`}
+              >
+                <MapPin className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Custom Trip</span>
+              </button>
+              <button
+                onClick={() => onModeChange('quick-ride')}
+                className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
+                  activeMode === 'quick-ride'
+                    ? 'bg-white/10 text-white border border-white/15'
+                    : 'text-slate-400 bg-white/[0.02] border border-transparent'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Quick Ride</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

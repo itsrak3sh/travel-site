@@ -58,6 +58,7 @@ export interface DriverBidItem {
   badge?: string;
   verified: boolean;
   isLoggedInPartner?: boolean;
+  phone?: string;
 }
 
 export type SharedTripStatus = 
@@ -71,6 +72,7 @@ export type SharedTripStatus =
 export interface SharedActiveTrip {
   id: string;
   riderName: string;
+  riderPhone?: string;
   pickup: string;
   destination: string;
   stops: IntermediateStopItem[];

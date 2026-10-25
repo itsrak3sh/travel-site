@@ -15,6 +15,7 @@ import {
   insertDriverBid,
   generateUUID 
 } from './lib/supabaseService';
+import { supabase } from './lib/supabaseClient.js';
 
 export function App() {
   // Direct route detection: support '/driver' route directly
@@ -29,8 +30,21 @@ export function App() {
   const [activeMode, setActiveMode] = useState<MobilityMode>('custom-trip');
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [driverModalOpen, setDriverModalOpen] = useState(false);
-  const [userLoggedIn, setUserLoggedIn] = useState(false);
-  const [userName, setUserName] = useState('Alex Rider');
+
+  // Customer Login Session State (persisted in localStorage)
+  const [customerUser, setCustomerUser] = useState<{ name: string; phone: string; loggedIn: boolean }>(() => {
+    try {
+      const saved = localStorage.getItem('goride_customer_user');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return { name: 'Alex Rider', phone: '+91 98101 23456', loggedIn: false };
+  });
+
+  const [userLoggedIn, setUserLoggedIn] = useState<boolean>(customerUser.loggedIn);
+  const [userName, setUserName] = useState<string>(customerUser.name);
+  const [userPhone, setUserPhone] = useState<string>(customerUser.phone);
 
   // Handle browser Back / Forward navigation and direct URL route changes
   useEffect(() => {
@@ -88,8 +102,9 @@ export function App() {
   // Shared Active Trip State for Bidirectional Handshake
   const [sharedTrip, setSharedTrip] = useState<SharedActiveTrip | null>(() => {
     return {
-      id: 'TRIP-APEX-89421',
-      riderName: 'Alex Rider',
+      id: generateUUID(),
+      riderName: customerUser.name,
+      riderPhone: customerUser.phone,
       pickup: 'Connaught Place, Inner Circle, New Delhi',
       destination: 'Terminal 3, Indira Gandhi International Airport',
       stops: [
@@ -140,9 +155,19 @@ export function App() {
     }
   };
 
-  const handleLoginSuccess = (name: string) => {
+  const handleLoginSuccess = (name: string, phone?: string) => {
     setUserLoggedIn(true);
     setUserName(name);
+    if (phone) setUserPhone(phone);
+    setCustomerUser({ name, phone: phone || userPhone, loggedIn: true });
+    setSharedTrip((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        riderName: name,
+        riderPhone: phone || prev.riderPhone,
+      };
+    });
   };
 
   // FLOW 1: Customer submits Step 5 -> Insert into 'trips' table with status 'searching' & broadcast
@@ -157,9 +182,11 @@ export function App() {
   }) => {
     const currentPickupOtp = sharedTrip?.pickupOtp || '4821';
     const currentDropOtp = sharedTrip?.dropoffOtp || '9245';
+    const newTripId = generateUUID();
 
-    // 1. Insert record into Supabase 'trips' table
+    // 1. Insert record into Supabase 'trips' table with a valid UUID
     const { trip } = await insertTripRecord({
+      id: newTripId,
       bookingMode: 'custom',
       pickup: data.pickup,
       destination: data.destination,
@@ -171,11 +198,12 @@ export function App() {
       dropoffOtp: currentDropOtp,
     });
 
-    const activeTripId = trip?.id || generateUUID();
+    const activeTripId = trip?.id || newTripId;
 
     setSharedTrip({
       id: activeTripId,
       riderName: userName || 'Alex Rider',
+      riderPhone: userPhone || '+91 98101 23456',
       pickup: data.pickup,
       destination: data.destination,
       stops: data.stops,
@@ -294,12 +322,13 @@ export function App() {
   };
 
   // 3. Customer calls and confirms ride -> Handshake changes status to "matched_en_route"
-  const handleCustomerConfirmRide = (bid: DriverBidItem) => {
+  const handleCustomerConfirmRide = async (bid: DriverBidItem) => {
+    const customerPaid = bid.quotedFareINR;
+    const platformFee = Math.round(customerPaid * 0.15);
+    const driverPayout = customerPaid - platformFee;
+
     setSharedTrip((prev) => {
       if (!prev) return null;
-      const customerPaid = bid.quotedFareINR;
-      const platformFee = Math.round(customerPaid * 0.15);
-      const driverPayout = customerPaid - platformFee;
       return {
         ...prev,
         status: 'matched_en_route',
@@ -310,6 +339,23 @@ export function App() {
         driverPayoutINR: driverPayout,
       };
     });
+
+    // Update Supabase 'trips' table to status = 'accepted' to trigger Realtime Driver Alert
+    try {
+      if (sharedTrip?.id) {
+        await supabase
+          .from('trips')
+          .update({
+            status: 'accepted',
+            driver_id: bid.id || driverProfile.name || 'driver-partner',
+            final_fare: customerPaid,
+            escrow_locked: true,
+          })
+          .eq('id', sharedTrip.id);
+      }
+    } catch (err) {
+      console.warn('Realtime trip status update handled:', err);
+    }
   };
 
   // 4. Verify Pickup OTP -> Starts the journey in-transit
@@ -383,7 +429,7 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-dark-950 font-sans text-slate-100 selection:bg-emerald-500 selection:text-slate-950 flex flex-col justify-between">
-      {/* 1. Clean Main Navigation Header */}
+      {/* 1. Main Navigation Header with Book Ride / Driver Partner Role Switch */}
       <MobilityHeader
         activeMode={activeMode}
         onModeChange={(mode) => {
@@ -392,6 +438,8 @@ export function App() {
             handleToggleAppView('customer');
           }
         }}
+        currentAppView={currentAppView}
+        onNavigateView={handleToggleAppView}
         onNavigateHome={() => handleToggleAppView('customer')}
         onOpenAuthModal={() => setAuthModalOpen(true)}
         userLoggedIn={userLoggedIn}
@@ -436,11 +484,13 @@ export function App() {
       {/* 3. Sleek Dark Cab-Tech Footer */}
       <MobilityFooter />
 
-      {/* 4. Login / Signup Modal */}
+      {/* 4. Frictionless Customer Phone Authentication Modal */}
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         onLoginSuccess={handleLoginSuccess}
+        initialName={userName}
+        initialPhone={userPhone}
       />
 
       {/* 5. Driver Partner Modal (Dual Tab Login/Register + Duty Dashboard) */}

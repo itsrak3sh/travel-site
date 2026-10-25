@@ -706,23 +706,21 @@ export const QuickRideView: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <button
-                    type="button"
-                    onClick={() => setCallingDriver(true)}
+                  <a
+                    href={`tel:${assignedDriver.phone.replace(/\s+/g, '')}`}
                     className="flex-1 sm:flex-none px-4 py-2.5 rounded-2xl bg-emerald-500/90 hover:bg-emerald-400 text-black font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-500/15"
                   >
                     <PhoneCall className="w-4 h-4" />
-                    <span>Call Driver</span>
-                  </button>
+                    <span>Call Driver ({assignedDriver.phone})</span>
+                  </a>
 
-                  <button
-                    type="button"
-                    onClick={() => alert(`Chatting with ${assignedDriver.name}... "I am arriving at the main gate."`)}
+                  <a
+                    href={`sms:${assignedDriver.phone.replace(/\s+/g, '')}`}
                     className="flex-1 sm:flex-none p-2.5 px-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] text-white/70 border border-white/10 flex items-center justify-center gap-1 text-xs font-light transition-colors"
                   >
                     <MessageSquare className="w-4 h-4 text-teal-300" />
                     <span className="hidden sm:inline">Chat</span>
-                  </button>
+                  </a>
                 </div>
               </div>
 

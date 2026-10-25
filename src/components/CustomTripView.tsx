@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { DriverBidItem, IntermediateStopItem, SharedActiveTrip } from '../types/mobility';
+import { supabase } from '../lib/supabaseClient.js';
 
 export type DriverBid = DriverBidItem;
 export type IntermediateStop = IntermediateStopItem;
@@ -66,6 +67,7 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
   const [specialNotes, setSpecialNotes] = useState('Need clean empty boot space for 2 trolley bags. AC on high.');
 
   // Bidding state & incoming quotes
+  const [bids, setBids] = useState<any[]>([]);
   const [visibleBidsCount, setVisibleBidsCount] = useState<number>(0);
   const [selectedDriverForCall, setSelectedDriverForCall] = useState<DriverBid | null>(null);
   const [escrowModalOpen, setEscrowModalOpen] = useState(false);
@@ -200,6 +202,7 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
       distanceKm: 0.8,
       badge: 'Lowest Fare / Green EV',
       verified: true,
+      phone: '+91 98112 34567',
     },
     {
       id: 'bid-2',
@@ -216,6 +219,7 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
       distanceKm: 1.2,
       badge: 'Top Rated Prime Chauffeur',
       verified: true,
+      phone: '+91 98110 44219',
     },
     {
       id: 'bid-3',
@@ -232,6 +236,7 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
       distanceKm: 1.4,
       badge: 'Quick Pickup',
       verified: true,
+      phone: '+91 98118 99120',
     },
     {
       id: 'bid-4',
@@ -248,6 +253,7 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
       distanceKm: 1.8,
       badge: 'Senior Veteran Driver',
       verified: true,
+      phone: '+91 98115 88231',
     },
   ];
 
@@ -274,13 +280,104 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
     }
   };
 
-  // Live Bids list: Combine sharedTrip bids with local driverQuotes
-  const displayedBids = useMemo(() => {
-    if (sharedTrip?.bids && sharedTrip.bids.length > 0) {
-      return sharedTrip.bids;
+  const currentTripId = sharedTrip?.id;
+
+  // FLOW 1: Customer Booking Realtime Subscription on 'bids' table for currentTripId
+  useEffect(() => {
+    if (!currentTripId) return;
+
+    // Fetch existing bids from Supabase 'bids' table
+    supabase
+      .from('bids')
+      .select('*')
+      .eq('trip_id', currentTripId)
+      .then(({ data, error }) => {
+        if (!error && data && data.length > 0) {
+          setBids(data);
+        }
+      });
+
+    // Realtime subscription on 'bids' table for current trip
+    const channel = supabase
+      .channel('custom-bids-channel')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'bids',
+          filter: `trip_id=eq.${currentTripId}`,
+        },
+        (payload) => {
+          setBids((prev) => [payload.new, ...prev]);
+        }
+      )
+      .subscribe((status) => {
+        console.log(`[Supabase Realtime] custom-bids-channel for trip ${currentTripId}:`, status);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentTripId]);
+
+  const formatBidRow = (row: any): DriverBid => {
+    if (row.vehicleModel && row.quotedFareINR !== undefined) {
+      return row as DriverBid;
     }
-    return driverQuotes.slice(0, visibleBidsCount);
-  }, [sharedTrip?.bids, visibleBidsCount]);
+    return {
+      id: row.id || `bid-${Date.now()}`,
+      name: row.driver_name || 'Rajesh Kumar (Partner Driver)',
+      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
+      rating: 4.97,
+      trips: 4210,
+      vehicleModel: row.vehicle_model || 'Honda City Prime (Chauffeur)',
+      vehicleTier: 'Prime Sedan',
+      plateNumber: row.vehicle_plate || 'DL 01 AB 4829',
+      driverAge: 38,
+      quotedFareINR: Number(row.quoted_fare || row.quotedFareINR) || 640,
+      etaMinutes: Number(row.eta_minutes || row.etaMinutes) || 3,
+      distanceKm: 0.9,
+      badge: '★ Live Driver Quote (Supabase Realtime)',
+      verified: true,
+      isLoggedInPartner: true,
+      phone: '+91 98110 44219',
+    };
+  };
+
+  // Live Bids list: Combine Realtime Supabase bids + sharedTrip bids + local driverQuotes
+  const displayedBids = useMemo(() => {
+    const list: DriverBid[] = [];
+
+    // 1. Realtime bids from Supabase
+    if (bids && bids.length > 0) {
+      bids.forEach((b) => {
+        list.push(formatBidRow(b));
+      });
+    }
+
+    // 2. SharedTrip bids
+    if (sharedTrip?.bids && sharedTrip.bids.length > 0) {
+      sharedTrip.bids.forEach((sb) => {
+        if (!list.some((b) => b.id === sb.id)) {
+          list.push(formatBidRow(sb));
+        }
+      });
+    }
+
+    // 3. Fallback simulated driver quotes
+    if (list.length === 0) {
+      return driverQuotes.slice(0, visibleBidsCount);
+    }
+
+    driverQuotes.slice(0, visibleBidsCount).forEach((dq) => {
+      if (!list.some((b) => b.id === dq.id || b.name === dq.name)) {
+        list.push(dq);
+      }
+    });
+
+    return list;
+  }, [bids, sharedTrip?.bids, visibleBidsCount]);
 
   // Synchronize state when driver updates active ride from Driver Dashboard
   useEffect(() => {
@@ -1351,6 +1448,16 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
                 <p className="text-xs text-slate-300 font-light">
                   When confirmed, quoted fare <strong className="text-white font-normal">₹{selectedDriverForCall.quotedFareINR}</strong> is deposited in the Escrow Vault and released only upon Drop-off OTP verification.
                 </p>
+                <div className="pt-1">
+                  <a
+                    href={`tel:${(selectedDriverForCall.phone || '+919811044219').replace(/\s+/g, '')}`}
+                    className="inline-flex items-center gap-1.5 text-xs text-emerald-300 hover:text-emerald-200 underline font-light"
+                  >
+                    <PhoneCall className="w-3.5 h-3.5" />
+                    <span>Open Phone Dialer ({selectedDriverForCall.phone || '+91 98110 44219'})</span>
+                  </a>
+                </div>
+
                 <div className="flex flex-col sm:flex-row gap-3">
                   <button
                     onClick={handleCancelCall}
@@ -1536,20 +1643,20 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
                           </div>
 
                           <div className="flex items-center gap-2 w-full sm:w-auto">
-                            <button
-                              onClick={() => alert(`Calling driver ${selectedDriverForCall.name} via masked secure line...`)}
-                              className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-200 border border-white/10 flex items-center justify-center gap-1.5 text-xs font-light transition-colors"
+                            <a
+                              href={`tel:${(selectedDriverForCall.phone || '+919811044219').replace(/\s+/g, '')}`}
+                              className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 flex items-center justify-center gap-1.5 text-xs font-medium transition-colors shadow-sm"
                             >
-                              <PhoneCall className="w-3.5 h-3.5 text-emerald-300" />
-                              <span>Call</span>
-                            </button>
-                            <button
-                              onClick={() => alert('Opening in-app rider chat...')}
+                              <PhoneCall className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Call {selectedDriverForCall.phone || '+91 98110 44219'}</span>
+                            </a>
+                            <a
+                              href={`sms:${(selectedDriverForCall.phone || '+919811044219').replace(/\s+/g, '')}`}
                               className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-200 border border-white/10 flex items-center justify-center gap-1.5 text-xs font-light transition-colors"
                             >
                               <MessageSquare className="w-3.5 h-3.5 text-slate-300" />
                               <span>Chat</span>
-                            </button>
+                            </a>
                           </div>
                         </div>
 

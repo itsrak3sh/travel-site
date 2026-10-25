@@ -2,6 +2,7 @@ import { supabase, SUPABASE_URL } from './supabaseClient.js';
 import { DriverBidItem, IntermediateStopItem } from '../types/mobility';
 
 export interface CreateTripParams {
+  id?: string;
   bookingMode?: 'custom' | 'quick';
   pickup: string;
   destination: string;
@@ -62,7 +63,7 @@ export function generateUUID(): string {
  */
 export async function insertTripRecord(params: CreateTripParams): Promise<{ trip: SupabaseTripRow | null; error: any }> {
   try {
-    const tripId = generateUUID();
+    const tripId = params.id && params.id.includes('-') && params.id.length >= 30 ? params.id : generateUUID();
     const payload = {
       id: tripId,
       booking_mode: params.bookingMode || 'custom',
@@ -407,5 +408,78 @@ export async function uploadDriverDocumentsAndSaveKyc(params: {
       driverRecord: null,
       error: err,
     };
+  }
+}
+
+/**
+ * FLOW 4: Driver Realtime Confirmation Alert - Subscribe to 'trips' table for UPDATE events
+ * Alerts when a trip's status becomes 'accepted'
+ */
+export function subscribeToDriverTripAcceptance(
+  driverIdentifier: string,
+  onTripAccepted: (trip: SupabaseTripRow) => void
+): () => void {
+  const channelName = `driver-acceptance-${Date.now()}`;
+  const channel = supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'trips',
+      },
+      (payload) => {
+        if (!payload.new) return;
+        const newTrip = payload.new as any;
+        if (newTrip.status === 'accepted' || newTrip.status === 'matched_en_route') {
+          // If no specific driver filter or matches this driver
+          if (
+            !driverIdentifier ||
+            !newTrip.driver_id ||
+            newTrip.driver_id === driverIdentifier ||
+            newTrip.driver_name === driverIdentifier ||
+            driverIdentifier.toLowerCase().includes(String(newTrip.driver_name || '').toLowerCase())
+          ) {
+            onTripAccepted(newTrip as SupabaseTripRow);
+          }
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log('[Supabase Realtime] Driver acceptance subscription status:', status);
+    });
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+/**
+ * FLOW 5: Frictionless Customer Authentication - Upsert profile to Supabase 'profiles' table
+ */
+export async function upsertCustomerProfile(params: {
+  fullName: string;
+  phone: string;
+}): Promise<{ profile: any; error: any }> {
+  try {
+    const payload = {
+      id: generateUUID(),
+      full_name: params.fullName,
+      phone: params.phone,
+      role: 'customer',
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert(payload)
+      .select()
+      .maybeSingle();
+
+    return { profile: data || payload, error };
+  } catch (err) {
+    console.warn('Customer profile upsert caught:', err);
+    return { profile: null, error: err };
   }
 }

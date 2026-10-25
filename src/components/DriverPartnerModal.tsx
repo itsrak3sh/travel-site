@@ -748,7 +748,11 @@ export const DriverPartnerModal: React.FC<DriverPartnerModalProps> = ({
                         <input
                           type="number"
                           value={bidAmount}
-                          onChange={(e) => setBidAmount(e.target.value)}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => {
+                            const clean = e.target.value.replace(/\D/g, '');
+                            setBidAmount(clean);
+                          }}
                           placeholder="Enter your quote in ₹..."
                           className="w-full bg-white/[0.04] border border-white/15 focus:border-teal-400/60 rounded-2xl pl-7 pr-3 py-2 text-sm text-white font-mono focus:outline-none"
                         />

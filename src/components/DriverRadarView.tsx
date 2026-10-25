@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Radio, Power, Coins, CheckCircle2, ShieldCheck, 
   Send, Navigation, MapPin, AlertCircle, Sparkles, 
   UploadCloud, FileCheck, ExternalLink, 
-  Database, ArrowRight, KeyRound, LogOut, ArrowLeft
+  Database, ArrowRight, KeyRound, LogOut, ArrowLeft,
+  Phone, Bell
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { SharedActiveTrip } from '../types/mobility';
 import { DriverProfileData } from './DriverPartnerModal';
-import { uploadDriverDocumentsAndSaveKyc } from '../lib/supabaseService';
+import { uploadDriverDocumentsAndSaveKyc, subscribeToDriverTripAcceptance } from '../lib/supabaseService';
 
 interface DriverRadarViewProps {
   driverProfile: DriverProfileData;
@@ -79,6 +80,64 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
   const [driverDropoffOtpInput, setDriverDropoffOtpInput] = useState('');
   const [pickupOtpErr, setPickupOtpErr] = useState('');
   const [dropoffOtpErr, setDropoffOtpErr] = useState('');
+
+  // Realtime Confirmation Alert State (Supabase 'trips' UPDATE subscription)
+  const [acceptedAlertTrip, setAcceptedAlertTrip] = useState<{
+    pickup: string;
+    drop: string;
+    fare: number;
+    riderName: string;
+    riderPhone: string;
+    pickupOtp: string;
+  } | null>(null);
+  const [alertAcknowledged, setAlertAcknowledged] = useState(false);
+
+  // Supabase Realtime Subscription on 'trips' table for UPDATE events (status = 'accepted')
+  useEffect(() => {
+    if (!driverLoggedIn || !driverProfile.isOnline) return;
+
+    const unsubscribe = subscribeToDriverTripAcceptance(
+      driverProfile.name || driverProfile.vehiclePlate,
+      (acceptedTripRow) => {
+        try {
+          confetti({ particleCount: 90, spread: 70, origin: { y: 0.5 } });
+        } catch {
+          // ignore
+        }
+        setAcceptedAlertTrip({
+          pickup: acceptedTripRow.pickup_location || 'Aerocity Central, New Delhi',
+          drop: acceptedTripRow.drop_location || 'DLF Cyber Hub, Gurugram',
+          fare: acceptedTripRow.final_fare || 650,
+          riderName: 'Alex Rider',
+          riderPhone: '+91 98101 23456',
+          pickupOtp: acceptedTripRow.pickup_otp || '4821',
+        });
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [driverLoggedIn, driverProfile.isOnline, driverProfile.name, driverProfile.vehiclePlate]);
+
+  // Trigger confirmation alert when sharedTrip updates to matched_en_route
+  useEffect(() => {
+    if (sharedTrip?.status === 'matched_en_route' && !alertAcknowledged) {
+      try {
+        confetti({ particleCount: 80, spread: 60, origin: { y: 0.5 } });
+      } catch {
+        // ignore
+      }
+      setAcceptedAlertTrip({
+        pickup: sharedTrip.pickup,
+        drop: sharedTrip.destination,
+        fare: sharedTrip.customerPaidINR || sharedTrip.matchedBid?.quotedFareINR || 650,
+        riderName: sharedTrip.riderName,
+        riderPhone: sharedTrip.riderPhone || '+91 98101 23456',
+        pickupOtp: sharedTrip.pickupOtp,
+      });
+    }
+  }, [sharedTrip?.status, alertAcknowledged]);
 
   // Handle Tab A: Request Login OTP
   const handleSendLoginOtp = (e: React.FormEvent) => {
@@ -260,6 +319,98 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
         </div>
       </div>
 
+      {/* REALTIME TRIP ACCEPTED CONFIRMATION MODAL */}
+      {acceptedAlertTrip && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in">
+          <div 
+            className="relative w-full max-w-lg bg-black/90 backdrop-blur-2xl border border-emerald-500/40 rounded-3xl p-6 sm:p-8 text-white shadow-2xl space-y-6 animate-scale-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center gap-3.5 pb-4 border-b border-white/10">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300 shadow-lg shadow-emerald-500/15">
+                <Bell className="w-6 h-6 animate-bounce" />
+              </div>
+              <div>
+                <span className="text-[10px] font-mono uppercase bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30 font-semibold tracking-wider">
+                  SUPABASE REALTIME ALERT
+                </span>
+                <h3 className="font-light text-xl text-white tracking-tight mt-1">
+                  Trip Accepted by Customer!
+                </h3>
+              </div>
+            </div>
+
+            {/* Fare & Escrow Status */}
+            <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-between">
+              <div>
+                <span className="text-white/40 text-[11px] block font-light">Locked Customer Fare</span>
+                <span className="font-mono text-2xl font-medium text-emerald-300">
+                  ₹{acceptedAlertTrip.fare}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-emerald-300 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 font-mono block">
+                  85% Net: ₹{Math.round(acceptedAlertTrip.fare * 0.85)}
+                </span>
+                <span className="text-[10px] text-white/40 font-light mt-1 block">
+                  Escrow Vault Locked
+                </span>
+              </div>
+            </div>
+
+            {/* Route Details */}
+            <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-2.5 text-xs font-light">
+              <div className="flex items-start gap-2.5">
+                <Navigation className="w-4 h-4 text-emerald-300 flex-shrink-0 mt-0.5" />
+                <div>
+                  <strong className="text-white block font-medium">Pickup Location:</strong>
+                  <span className="text-white/70">{acceptedAlertTrip.pickup}</span>
+                </div>
+              </div>
+              <div className="flex items-start gap-2.5 pt-2 border-t border-white/[0.06]">
+                <MapPin className="w-4 h-4 text-teal-300 flex-shrink-0 mt-0.5" />
+                <div>
+                  <strong className="text-white block font-medium">Destination:</strong>
+                  <span className="text-white/70">{acceptedAlertTrip.drop}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Customer Contact Card with Real HTML tel: anchor */}
+            <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div>
+                <span className="text-white/40 text-[10px] uppercase font-mono block">Customer Contact</span>
+                <span className="font-medium text-white text-sm block">{acceptedAlertTrip.riderName}</span>
+                <span className="text-xs font-mono text-emerald-300/80">{acceptedAlertTrip.riderPhone}</span>
+              </div>
+
+              {/* Real Phone Dialer Anchor */}
+              <a
+                href={`tel:${acceptedAlertTrip.riderPhone.replace(/\s+/g, '')}`}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-500/10"
+              >
+                <Phone className="w-3.5 h-3.5" />
+                <span>Call Customer</span>
+              </a>
+            </div>
+
+            {/* Acknowledge Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setAlertAcknowledged(true);
+                setAcceptedAlertTrip(null);
+              }}
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/90 to-teal-500/90 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15 transition-all"
+            >
+              <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
+              <span>Acknowledge & Navigate to Pickup</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* VIEW: LOGGED IN DRIVER DASHBOARD */}
       {/* ========================================================================= */}
@@ -364,6 +515,15 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
                       <p className="text-xs text-white/60 font-light">
                         Locked Fare: <strong className="text-emerald-300 font-mono font-normal">₹{sharedTrip.customerPaidINR || sharedTrip.matchedBid?.quotedFareINR}</strong> (Held in GoRide Escrow)
                       </p>
+                      <div className="pt-2">
+                        <a
+                          href={`tel:${(sharedTrip.riderPhone || '+919810123456').replace(/\s+/g, '')}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-medium transition-colors shadow-sm"
+                        >
+                          <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Call Rider ({sharedTrip.riderPhone || '+91 98101 23456'})</span>
+                        </a>
+                      </div>
                     </div>
 
                     <div className="text-right">
@@ -449,6 +609,15 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
                       <p className="text-xs text-white/60 font-light">
                         Rider: {sharedTrip.riderName} • Live Telematics Active
                       </p>
+                      <div className="pt-2">
+                        <a
+                          href={`tel:${(sharedTrip.riderPhone || '+919810123456').replace(/\s+/g, '')}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/30 text-xs font-medium transition-colors shadow-sm"
+                        >
+                          <Phone className="w-3.5 h-3.5 text-teal-300" />
+                          <span>Call Rider ({sharedTrip.riderPhone || '+91 98101 23456'})</span>
+                        </a>
+                      </div>
                     </div>
 
                     <div className="text-right">
@@ -612,7 +781,11 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
                         <input
                           type="number"
                           value={bidAmount}
-                          onChange={(e) => setBidAmount(e.target.value)}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => {
+                            const clean = e.target.value.replace(/\D/g, '');
+                            setBidAmount(clean);
+                          }}
                           placeholder="Enter offer amount..."
                           className="w-full bg-white/[0.04] border border-white/15 focus:border-teal-400/60 rounded-2xl pl-8 pr-3 py-2.5 text-sm text-white font-mono focus:outline-none"
                         />
