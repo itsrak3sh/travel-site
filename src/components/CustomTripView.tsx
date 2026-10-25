@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Navigation, MapPin, ArrowUpDown, LocateFixed, Plus, Trash2, 
   Clock, CheckCircle2, ChevronRight, ChevronLeft, Shuffle, 
-  Shield, Check, MessageSquare, PhoneCall, RotateCcw,
+  Shield, Check, PhoneCall, RotateCcw,
   Lock, ShieldCheck, PhoneOff, Radio, Wallet, Star,
-  Download, AlertCircle, Copy, Banknote, Sparkles, Share2, Compass
+  Download, AlertCircle, Copy, Banknote, Sparkles, Share2, Compass, Phone
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { DriverBidItem, IntermediateStopItem, SharedActiveTrip } from '../types/mobility';
@@ -450,6 +450,35 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  // Direct Customer Action: Click "Accept Offer" on a Driver's Bid
+  const handleAcceptBidOffer = (bid: DriverBid) => {
+    setSelectedDriverForCall(bid);
+    setFlowState('en-route');
+    setRidePhase('driver-arriving');
+    const pOtp = sharedTrip?.pickupOtp || '4821';
+    const dOtp = sharedTrip?.dropoffOtp || '9245';
+    setPickupOtp(pOtp);
+    setDropoffOtp(dOtp);
+    setEnteredDropoffOtp('');
+    setDropoffOtpError('');
+    setDriverRating(5);
+    setSelectedTip(0);
+
+    try {
+      confetti({
+        particleCount: 110,
+        spread: 80,
+        origin: { y: 0.5 },
+      });
+    } catch {
+      // ignore
+    }
+
+    if (onCustomerConfirmRide) {
+      onCustomerConfirmRide(bid);
+    }
   };
 
   // Final confirmation from call:
@@ -1371,13 +1400,28 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
                         <span className="text-[10px] text-slate-400 font-light">All-Inclusive</span>
                       </div>
 
-                      <button
-                        onClick={() => handleOpenEscrowModal(bid)}
-                        className="px-5 py-2.5 rounded-2xl bg-white/10 hover:bg-white/15 text-white font-medium text-xs flex items-center gap-1.5 transition-all border border-white/15 shadow-md shadow-black/20 hover:scale-[1.01] whitespace-nowrap"
-                      >
-                        <Lock className="w-3.5 h-3.5 text-emerald-300" />
-                        <span>Lock ₹{bid.quotedFareINR} & Call</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {/* PRIMARY ACTION: Direct Accept Offer CTA */}
+                        <button
+                          type="button"
+                          onClick={() => handleAcceptBidOffer(bid)}
+                          className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/25 transition-all hover:scale-[1.02] whitespace-nowrap"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                          <span>Accept Offer (₹{bid.quotedFareINR})</span>
+                        </button>
+
+                        {/* SECONDARY ACTION: Lock & Call Modal */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEscrowModal(bid)}
+                          className="px-3.5 py-2.5 rounded-2xl bg-white/[0.06] hover:bg-white/[0.12] text-white font-medium text-xs flex items-center gap-1 transition-all border border-white/15"
+                          title="Call or review escrow details"
+                        >
+                          <Phone className="w-3.5 h-3.5 text-emerald-300" />
+                          <span>Call</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -1544,49 +1588,121 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
                     </div>
 
                     {/* ========================================================================= */}
-                    {/* PHASE 1: DRIVER ARRIVING (Pickup OTP Verification Stage) */}
+                    {/* PHASE 1: FULL-SCREEN "RIDE CONFIRMED" HERO STATE */}
                     {/* ========================================================================= */}
                     {ridePhase === 'driver-arriving' && (
-                      <div className="bg-black/40 backdrop-blur-2xl rounded-3xl p-7 sm:p-10 border border-white/10 shadow-2xl space-y-7">
-                        {/* Header */}
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-white/[0.06] gap-3">
+                      <div className="bg-gradient-to-b from-emerald-950/40 via-black/80 to-black/90 backdrop-blur-2xl rounded-3xl p-7 sm:p-10 border border-emerald-500/40 shadow-2xl space-y-7 ring-1 ring-emerald-500/20 animate-fade-in">
+                        {/* 1. Prominent Header */}
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-5 border-b border-white/10 gap-4">
                           <div className="flex items-center gap-3.5">
-                            <div className="w-10 h-10 rounded-2xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-emerald-300">
-                              <Radio className="w-4 h-4" />
+                            <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-emerald-500/25 to-teal-500/25 border border-emerald-500/40 flex items-center justify-center text-emerald-300 shadow-lg shadow-emerald-500/20">
+                              <CheckCircle2 className="w-7 h-7 text-emerald-400 stroke-[2.5] animate-pulse" />
                             </div>
                             <div>
                               <div className="flex items-center gap-2">
-                                <h3 className="font-medium text-lg text-white">Chauffeur En Route</h3>
-                                <span className="text-[10px] bg-white/[0.06] text-emerald-300 px-2.5 py-0.5 rounded-full border border-white/10 font-light">
-                                  Stage 1 • Pickup
+                                <span className="text-[10px] font-mono uppercase bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30 font-semibold tracking-wider">
+                                  RIDE CONFIRMED & DISPATCHED
                                 </span>
                               </div>
-                              <span className="text-xs text-slate-400 font-light">
-                                Arriving in ~{selectedDriverForCall.etaMinutes} mins ({selectedDriverForCall.distanceKm} km away)
-                              </span>
+                              <h3 className="font-bold text-2xl sm:text-3xl text-white tracking-tight mt-1">
+                                Booking Confirmed! Your Chauffeur is En Route
+                              </h3>
+                              <p className="text-xs text-slate-300 font-light mt-0.5">
+                                Your private chauffeur has accepted the ride and is navigating to your pickup location.
+                              </p>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-slate-300 bg-white/[0.04] px-3.5 py-1.5 rounded-full border border-white/10 font-light">
+                          <div className="text-left sm:text-right">
+                            <span className="text-xs text-emerald-300 bg-emerald-500/10 px-3.5 py-1 rounded-full border border-emerald-500/20 font-mono font-medium block">
                               Escrow Locked: ₹{quotedFare}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-light mt-1 block">
+                              100% Escrow Protected
                             </span>
                           </div>
                         </div>
 
-                        {/* PICKUP OTP DISPLAY CARD */}
+                        {/* 2. Chauffeur Showcase Card: Driver Name, Car Model, Fare, and Direct Call Button */}
+                        <div className="p-6 rounded-3xl bg-white/[0.04] border border-emerald-500/30 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                          <div className="flex items-center gap-5">
+                            <div className="relative">
+                              <img
+                                src={selectedDriverForCall.avatar}
+                                alt={selectedDriverForCall.name}
+                                className="w-20 h-20 rounded-3xl object-cover border-2 border-emerald-400/50 shadow-xl"
+                              />
+                              <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 text-black flex items-center justify-center shadow-md">
+                                <CheckCircle2 className="w-4 h-4 stroke-[3]" />
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="font-bold text-xl text-white">{selectedDriverForCall.name}</h4>
+                                <span className="text-xs bg-white/[0.06] px-2.5 py-0.5 rounded-full font-medium text-amber-300 border border-white/10">
+                                  ★ {selectedDriverForCall.rating.toFixed(2)} ({selectedDriverForCall.trips} trips)
+                                </span>
+                                <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                                  Verified Prime Chauffeur
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-2 text-sm text-slate-200">
+                                <span className="font-medium text-white">{selectedDriverForCall.vehicleModel}</span>
+                                <span className="text-slate-500">•</span>
+                                <span className="font-mono text-emerald-300 bg-white/[0.04] px-2 py-0.5 rounded-lg border border-white/10 text-xs">
+                                  {selectedDriverForCall.plateNumber}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-3 text-xs text-slate-400 pt-1">
+                                <span>Chauffeur Age: <strong className="text-white font-normal">{selectedDriverForCall.driverAge} yrs</strong></span>
+                                <span>•</span>
+                                <span className="text-emerald-300 font-medium flex items-center gap-1">
+                                  <Clock className="w-3.5 h-3.5" /> ETA: ~{selectedDriverForCall.etaMinutes} mins ({selectedDriverForCall.distanceKm} km away)
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Fare & Direct Call Driver Action Button */}
+                          <div className="flex flex-col sm:flex-row md:flex-col items-start md:items-end justify-between w-full md:w-auto gap-4 pt-4 md:pt-0 border-t md:border-t-0 border-white/10">
+                            <div className="text-left md:text-right">
+                              <span className="text-[10px] tracking-wider uppercase text-slate-400 block font-light">
+                                Total Fare Amount
+                              </span>
+                              <span className="font-bold text-3xl text-emerald-300 block leading-tight font-mono">
+                                ₹{quotedFare}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-light">All-Inclusive (Escrow Held)</span>
+                            </div>
+
+                            {/* Direct Call Driver Button */}
+                            <a
+                              href={`tel:${(selectedDriverForCall.phone || '+919811044219').replace(/\s+/g, '')}`}
+                              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-sm flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/25 transition-all hover:scale-[1.02] whitespace-nowrap"
+                            >
+                              <Phone className="w-4 h-4 stroke-[2.5]" />
+                              <span>Call Driver ({selectedDriverForCall.phone || '+91 98110 44219'})</span>
+                            </a>
+                          </div>
+                        </div>
+
+                        {/* 3. 4-Digit Pickup Passcode Card */}
                         <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/10 shadow-xl space-y-4">
                           <div className="flex items-center justify-between">
                             <div>
                               <span className="text-[10px] uppercase tracking-widest text-emerald-300 font-light block">
-                                Verification Step 1
+                                Boarding Verification
                               </span>
-                              <h4 className="text-base font-medium text-white">
+                              <h4 className="text-base font-semibold text-white">
                                 Share Pickup OTP with Chauffeur
                               </h4>
                             </div>
 
                             <button
+                              type="button"
                               onClick={() => handleCopyOtp(pickupOtp)}
                               className="px-3.5 py-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-emerald-300 text-xs font-light flex items-center gap-1.5 transition-colors border border-white/10"
                             >
@@ -1599,73 +1715,26 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
                             {pickupOtp.split('').map((digit, idx) => (
                               <div
                                 key={idx}
-                                className="w-13 h-15 rounded-2xl bg-white/[0.05] border border-white/15 flex items-center justify-center font-mono font-light text-2xl text-white shadow-inner"
+                                className="w-13 h-15 rounded-2xl bg-white/[0.05] border border-white/15 flex items-center justify-center font-mono font-medium text-2xl text-white shadow-inner"
                               >
                                 {digit}
                               </div>
                             ))}
                             <div className="ml-3 text-xs text-slate-300 font-light">
-                              <span className="text-white block font-normal">4-Digit Pickup Passcode</span>
+                              <span className="text-white block font-medium">4-Digit Pickup Passcode</span>
                               <span className="text-slate-400 text-[11px]">
-                                Share with {selectedDriverForCall.name} upon boarding to start journey.
+                                Share with {selectedDriverForCall.name} upon boarding to start your journey.
                               </span>
                             </div>
                           </div>
                         </div>
 
-                        {/* Driver & Vehicle Details */}
-                        <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                          <div className="flex items-center gap-4">
-                            <div className="relative">
-                              <img
-                                src={selectedDriverForCall.avatar}
-                                alt={selectedDriverForCall.name}
-                                className="w-14 h-14 rounded-2xl object-cover border border-white/15"
-                              />
-                              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-md">
-                                <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5]" />
-                              </div>
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-medium text-base text-white">{selectedDriverForCall.name}</h4>
-                                <span className="text-xs bg-white/[0.05] px-2 py-0.5 rounded-full font-light text-amber-300 border border-white/10">
-                                  ★ {selectedDriverForCall.rating.toFixed(2)} ({selectedDriverForCall.trips} trips)
-                                </span>
-                              </div>
-                              <span className="text-xs text-slate-400 block mt-0.5 font-light">
-                                Age: {selectedDriverForCall.driverAge} yrs • Verified Commercial Chauffeur
-                              </span>
-                              <span className="text-xs text-slate-300 font-normal mt-1 block">
-                                {selectedDriverForCall.vehicleModel} • {selectedDriverForCall.plateNumber}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 w-full sm:w-auto">
-                            <a
-                              href={`tel:${(selectedDriverForCall.phone || '+919811044219').replace(/\s+/g, '')}`}
-                              className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 flex items-center justify-center gap-1.5 text-xs font-medium transition-colors shadow-sm"
-                            >
-                              <PhoneCall className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>Call {selectedDriverForCall.phone || '+91 98110 44219'}</span>
-                            </a>
-                            <a
-                              href={`sms:${(selectedDriverForCall.phone || '+919811044219').replace(/\s+/g, '')}`}
-                              className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-200 border border-white/10 flex items-center justify-center gap-1.5 text-xs font-light transition-colors"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5 text-slate-300" />
-                              <span>Chat</span>
-                            </a>
-                          </div>
-                        </div>
-
-                        {/* Itinerary Waypoints */}
-                        <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-2 text-xs font-light">
-                          <div className="flex items-center gap-2 text-slate-300">
-                            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                            <span className="text-white font-normal">Pickup:</span>
-                            <span className="text-slate-300 truncate">{pickup}</span>
+                        {/* 4. Itinerary Waypoints */}
+                        <div className="p-4 sm:p-5 rounded-2xl bg-white/[0.02] border border-white/10 space-y-2.5 text-xs font-light">
+                          <div className="flex items-center gap-2.5 text-slate-300">
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                            <span className="text-emerald-400 font-mono uppercase text-[10px] tracking-wider font-medium">Pickup Point:</span>
+                            <span className="text-white font-medium truncate">{pickup}</span>
                           </div>
                           {stops.map((s, i) => (
                             <div key={s.id} className="flex items-center gap-2 text-slate-300 pl-4 border-l border-white/10 ml-1">
@@ -1673,14 +1742,14 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
                               <span className="text-slate-400 truncate">{s.address || 'Scheduled waypoint'}</span>
                             </div>
                           ))}
-                          <div className="flex items-center gap-2 text-slate-300">
-                            <span className="w-2 h-2 rounded-full bg-teal-400"></span>
-                            <span className="text-white font-normal">Drop:</span>
-                            <span className="text-slate-300 truncate">{destination}</span>
+                          <div className="flex items-center gap-2.5 text-slate-300 pt-1.5 border-t border-white/[0.04]">
+                            <span className="w-2.5 h-2.5 rounded-full bg-teal-400"></span>
+                            <span className="text-teal-400 font-mono uppercase text-[10px] tracking-wider font-medium">Drop Destination:</span>
+                            <span className="text-white font-medium truncate">{destination}</span>
                           </div>
                         </div>
 
-                        {/* SIMULATION BAR: Driver Arrives & Verifies Pickup OTP */}
+                        {/* 5. Chauffeur Terminal Arrival Simulation */}
                         <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/10 space-y-3">
                           <div className="flex items-center justify-between text-xs font-light">
                             <span className="text-[11px] uppercase text-slate-400 flex items-center gap-1.5">
@@ -1693,9 +1762,9 @@ export const CustomTripView: React.FC<CustomTripViewProps> = ({
                           <button
                             type="button"
                             onClick={handleVerifyPickupOtp}
-                            className="w-full py-3.5 px-4 rounded-2xl bg-white/10 hover:bg-white/15 text-white font-medium text-xs sm:text-sm flex items-center justify-center gap-2 border border-white/15 shadow-md shadow-black/20 transition-all hover:scale-[1.01]"
+                            className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 text-emerald-300 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 border border-emerald-500/40 shadow-md shadow-black/20 transition-all hover:scale-[1.01]"
                           >
-                            <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                            <CheckCircle2 className="w-4 h-4 text-emerald-300 stroke-[2.5]" />
                             <span>Chauffeur Arrived • Verify Pickup OTP ({pickupOtp}) & Start Journey</span>
                           </button>
                         </div>

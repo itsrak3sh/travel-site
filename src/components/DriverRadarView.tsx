@@ -4,7 +4,7 @@ import {
   Send, Navigation, MapPin, AlertCircle, Sparkles, 
   UploadCloud, FileCheck, ExternalLink, 
   Database, ArrowRight, KeyRound, LogOut, ArrowLeft,
-  Phone, Bell
+  Phone
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { SharedActiveTrip } from '../types/mobility';
@@ -104,13 +104,26 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
         } catch {
           // ignore
         }
+        const custName = (acceptedTripRow as any).customer_name || 
+                         (acceptedTripRow as any).rider_name || 
+                         (acceptedTripRow as any).customerName || 
+                         (acceptedTripRow as any).special_notes?.match(/\[Customer:\s*([^|\]]+)/)?.[1]?.trim() ||
+                         sharedTrip?.riderName || 
+                         'Customer';
+        const custPhone = (acceptedTripRow as any).customer_phone || 
+                          (acceptedTripRow as any).rider_phone || 
+                          (acceptedTripRow as any).customerPhone || 
+                          (acceptedTripRow as any).special_notes?.match(/\|\s*([^\]]+)\]/)?.[1]?.trim() ||
+                          sharedTrip?.riderPhone || 
+                          '+91 98101 23456';
+
         setAcceptedAlertTrip({
-          pickup: acceptedTripRow.pickup_location || 'Aerocity Central, New Delhi',
-          drop: acceptedTripRow.drop_location || 'DLF Cyber Hub, Gurugram',
-          fare: acceptedTripRow.final_fare || 650,
-          riderName: 'Alex Rider',
-          riderPhone: '+91 98101 23456',
-          pickupOtp: acceptedTripRow.pickup_otp || '4821',
+          pickup: acceptedTripRow.pickup_location || sharedTrip?.pickup || 'Aerocity Central, New Delhi',
+          drop: acceptedTripRow.drop_location || sharedTrip?.destination || 'DLF Cyber Hub, Gurugram',
+          fare: acceptedTripRow.final_fare || sharedTrip?.customerPaidINR || 650,
+          riderName: custName,
+          riderPhone: custPhone,
+          pickupOtp: acceptedTripRow.pickup_otp || sharedTrip?.pickupOtp || '4821',
         });
       }
     );
@@ -118,7 +131,7 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
     return () => {
       unsubscribe();
     };
-  }, [driverLoggedIn, driverProfile.isOnline, driverProfile.name, driverProfile.vehiclePlate]);
+  }, [driverLoggedIn, driverProfile.isOnline, driverProfile.name, driverProfile.vehiclePlate, sharedTrip?.riderName, sharedTrip?.riderPhone, sharedTrip?.pickup, sharedTrip?.destination, sharedTrip?.customerPaidINR, sharedTrip?.pickupOtp]);
 
   // Trigger confirmation alert when sharedTrip updates to matched_en_route
   useEffect(() => {
@@ -137,7 +150,7 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
         pickupOtp: sharedTrip.pickupOtp,
       });
     }
-  }, [sharedTrip?.status, alertAcknowledged]);
+  }, [sharedTrip?.status, alertAcknowledged, sharedTrip?.pickup, sharedTrip?.destination, sharedTrip?.customerPaidINR, sharedTrip?.matchedBid, sharedTrip?.riderName, sharedTrip?.riderPhone, sharedTrip?.pickupOtp]);
 
   // Handle Tab A: Request Login OTP
   const handleSendLoginOtp = (e: React.FormEvent) => {
@@ -323,76 +336,94 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
       {acceptedAlertTrip && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in">
           <div 
-            className="relative w-full max-w-lg bg-black/90 backdrop-blur-2xl border border-emerald-500/40 rounded-3xl p-6 sm:p-8 text-white shadow-2xl space-y-6 animate-scale-up"
+            className="relative w-full max-w-lg bg-black/95 backdrop-blur-2xl border border-emerald-500/50 rounded-3xl p-6 sm:p-8 text-white shadow-2xl space-y-6 animate-scale-up ring-1 ring-emerald-500/30"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Modal Header */}
+            {/* Modal Header: Exact required prompt title */}
             <div className="flex items-center gap-3.5 pb-4 border-b border-white/10">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300 shadow-lg shadow-emerald-500/15">
-                <Bell className="w-6 h-6 animate-bounce" />
+              <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-emerald-500/25 to-teal-500/25 border border-emerald-500/40 flex items-center justify-center text-emerald-300 shadow-lg shadow-emerald-500/20">
+                <CheckCircle2 className="w-7 h-7 stroke-[2.5] text-emerald-400 animate-pulse" />
               </div>
-              <div>
-                <span className="text-[10px] font-mono uppercase bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30 font-semibold tracking-wider">
-                  SUPABASE REALTIME ALERT
+              <div className="flex-1">
+                <span className="text-[10px] font-mono uppercase bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30 font-semibold tracking-wider inline-block">
+                  REALTIME HANDSHAKE CONFIRMED
                 </span>
-                <h3 className="font-light text-xl text-white tracking-tight mt-1">
-                  Trip Accepted by Customer!
+                <h3 className="font-semibold text-xl sm:text-2xl text-white tracking-tight mt-1">
+                  Trip Confirmed! Head to Pickup
                 </h3>
+                <p className="text-xs text-white/60 font-light mt-0.5">
+                  Customer has locked your quote in Escrow. Proceed to passenger pickup.
+                </p>
               </div>
             </div>
 
-            {/* Fare & Escrow Status */}
-            <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-between">
-              <div>
-                <span className="text-white/40 text-[11px] block font-light">Locked Customer Fare</span>
-                <span className="font-mono text-2xl font-medium text-emerald-300">
-                  ₹{acceptedAlertTrip.fare}
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-xs text-emerald-300 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 font-mono block">
-                  85% Net: ₹{Math.round(acceptedAlertTrip.fare * 0.85)}
-                </span>
-                <span className="text-[10px] text-white/40 font-light mt-1 block">
-                  Escrow Vault Locked
-                </span>
-              </div>
-            </div>
-
-            {/* Route Details */}
-            <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-2.5 text-xs font-light">
-              <div className="flex items-start gap-2.5">
-                <Navigation className="w-4 h-4 text-emerald-300 flex-shrink-0 mt-0.5" />
-                <div>
-                  <strong className="text-white block font-medium">Pickup Location:</strong>
-                  <span className="text-white/70">{acceptedAlertTrip.pickup}</span>
+            {/* Customer Details & Direct Call Button (Exact requirement) */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-white/[0.04] border border-emerald-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-inner">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-300 font-bold text-lg shadow-md">
+                  {(acceptedAlertTrip.riderName || 'C').charAt(0).toUpperCase()}
                 </div>
-              </div>
-              <div className="flex items-start gap-2.5 pt-2 border-t border-white/[0.06]">
-                <MapPin className="w-4 h-4 text-teal-300 flex-shrink-0 mt-0.5" />
                 <div>
-                  <strong className="text-white block font-medium">Destination:</strong>
-                  <span className="text-white/70">{acceptedAlertTrip.drop}</span>
+                  <span className="text-white/40 text-[10px] uppercase font-mono block tracking-wider">
+                    Customer Name
+                  </span>
+                  <span className="font-bold text-white text-lg block">
+                    {acceptedAlertTrip.riderName}
+                  </span>
+                  <span className="text-xs font-mono text-emerald-300/90 block">
+                    {acceptedAlertTrip.riderPhone}
+                  </span>
                 </div>
-              </div>
-            </div>
-
-            {/* Customer Contact Card with Real HTML tel: anchor */}
-            <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div>
-                <span className="text-white/40 text-[10px] uppercase font-mono block">Customer Contact</span>
-                <span className="font-medium text-white text-sm block">{acceptedAlertTrip.riderName}</span>
-                <span className="text-xs font-mono text-emerald-300/80">{acceptedAlertTrip.riderPhone}</span>
               </div>
 
               {/* Real Phone Dialer Anchor */}
               <a
                 href={`tel:${acceptedAlertTrip.riderPhone.replace(/\s+/g, '')}`}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-500/10"
+                className="w-full sm:w-auto px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.02]"
               >
-                <Phone className="w-3.5 h-3.5" />
+                <Phone className="w-4 h-4 stroke-[2.5]" />
                 <span>Call Customer</span>
               </a>
+            </div>
+
+            {/* Locked Fare & Escrow Status */}
+            <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-between">
+              <div>
+                <span className="text-white/40 text-[11px] block font-light">Locked Customer Fare</span>
+                <span className="font-mono text-2xl font-semibold text-emerald-300">
+                  ₹{acceptedAlertTrip.fare}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-emerald-300 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 font-mono font-medium block">
+                  85% Net Payout: ₹{Math.round(acceptedAlertTrip.fare * 0.85)}
+                </span>
+                <span className="text-[10px] text-white/40 font-light mt-1 block">
+                  GoRide Escrow Vault Locked
+                </span>
+              </div>
+            </div>
+
+            {/* Route Details: Pickup & Drop */}
+            <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/10 space-y-3 text-xs font-light">
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Navigation className="w-3.5 h-3.5 text-emerald-400" />
+                </div>
+                <div>
+                  <strong className="text-emerald-400 font-mono uppercase text-[10px] block tracking-wider">Pickup Location:</strong>
+                  <span className="text-white/90 text-sm font-medium">{acceptedAlertTrip.pickup}</span>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 pt-2.5 border-t border-white/[0.06]">
+                <div className="w-6 h-6 rounded-lg bg-teal-500/15 border border-teal-500/30 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <MapPin className="w-3.5 h-3.5 text-teal-400" />
+                </div>
+                <div>
+                  <strong className="text-teal-400 font-mono uppercase text-[10px] block tracking-wider">Destination:</strong>
+                  <span className="text-white/90 text-sm font-medium">{acceptedAlertTrip.drop}</span>
+                </div>
+              </div>
             </div>
 
             {/* Acknowledge Button */}
@@ -402,7 +433,7 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
                 setAlertAcknowledged(true);
                 setAcceptedAlertTrip(null);
               }}
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/90 to-teal-500/90 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/15 transition-all"
+              className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-sm flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/25 transition-all hover:scale-[1.01]"
             >
               <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
               <span>Acknowledge & Navigate to Pickup</span>
@@ -502,47 +533,84 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
                   </p>
                 </div>
               ) : sharedTrip?.status === 'matched_en_route' ? (
-                /* ==================== STAGE 1: EN ROUTE TO PICKUP & PICKUP OTP ==================== */
-                <div className="p-5 rounded-2xl bg-white/[0.02] border border-emerald-500/30 space-y-4 animate-fade-in">
-                  <div className="flex items-start justify-between gap-3 pb-3 border-b border-white/[0.06]">
-                    <div>
-                      <span className="text-[10px] font-mono uppercase text-emerald-300 font-light bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
-                        MATCHED TRIP • EN ROUTE TO PICKUP
-                      </span>
-                      <h4 className="font-medium text-base text-white mt-1">
-                        Rider: {sharedTrip.riderName}
-                      </h4>
-                      <p className="text-xs text-white/60 font-light">
-                        Locked Fare: <strong className="text-emerald-300 font-mono font-normal">₹{sharedTrip.customerPaidINR || sharedTrip.matchedBid?.quotedFareINR}</strong> (Held in GoRide Escrow)
-                      </p>
-                      <div className="pt-2">
-                        <a
-                          href={`tel:${(sharedTrip.riderPhone || '+919810123456').replace(/\s+/g, '')}`}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-medium transition-colors shadow-sm"
-                        >
-                          <Phone className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Call Rider ({sharedTrip.riderPhone || '+91 98101 23456'})</span>
-                        </a>
+                /* ==================== HERO STATE: TRIP CONFIRMED! HEAD TO PICKUP ==================== */
+                <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-b from-emerald-950/40 to-black/60 border border-emerald-500/40 space-y-6 animate-fade-in shadow-2xl ring-1 ring-emerald-500/20">
+                  {/* Hero Header */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-white/10 gap-3">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/25 to-teal-500/25 border border-emerald-500/40 flex items-center justify-center text-emerald-300 shadow-lg shadow-emerald-500/20">
+                        <CheckCircle2 className="w-6 h-6 text-emerald-400 stroke-[2.5] animate-pulse" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono uppercase bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30 font-semibold tracking-wider">
+                            RIDE CONFIRMED • EN ROUTE
+                          </span>
+                        </div>
+                        <h3 className="font-bold text-xl sm:text-2xl text-white tracking-tight mt-0.5">
+                          Trip Confirmed! Head to Pickup
+                        </h3>
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <span className="text-[10px] font-mono text-amber-300 block">
-                        ESCROW LOCKED
+                    <div className="text-left sm:text-right">
+                      <span className="text-xs text-emerald-300 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 font-mono font-medium block">
+                        85% Net: ₹{Math.round((sharedTrip.customerPaidINR || sharedTrip.matchedBid?.quotedFareINR || 650) * 0.85)}
                       </span>
-                      <span className="text-[11px] text-white/40 font-light">0% released until drop-off</span>
+                      <span className="text-[10px] font-mono text-amber-300 block mt-1">
+                        ESCROW LOCKED (₹{sharedTrip.customerPaidINR || sharedTrip.matchedBid?.quotedFareINR || 650})
+                      </span>
                     </div>
                   </div>
 
-                  {/* Route details */}
-                  <div className="p-3.5 rounded-2xl bg-white/[0.03] text-xs space-y-1.5 text-white/70 font-light border border-white/10">
-                    <div className="flex items-center gap-2">
-                      <Navigation className="w-3.5 h-3.5 text-emerald-300 flex-shrink-0" />
-                      <span><strong className="text-white font-medium">Pickup:</strong> {sharedTrip.pickup}</span>
+                  {/* Customer Information & Direct Call Button */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-white/[0.04] border border-emerald-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-300 font-bold text-lg shadow-md">
+                        {(sharedTrip.riderName || 'C').charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <span className="text-white/40 text-[10px] uppercase font-mono block tracking-wider">
+                          Passenger / Customer
+                        </span>
+                        <h4 className="font-bold text-lg text-white">
+                          {sharedTrip.riderName}
+                        </h4>
+                        <span className="text-xs font-mono text-emerald-300/90 block">
+                          {sharedTrip.riderPhone || '+91 98101 23456'}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-3.5 h-3.5 text-teal-300 flex-shrink-0" />
-                      <span><strong className="text-white font-medium">Drop:</strong> {sharedTrip.destination}</span>
+
+                    {/* Direct Real HTML Call Customer Anchor */}
+                    <a
+                      href={`tel:${(sharedTrip.riderPhone || '+919810123456').replace(/\s+/g, '')}`}
+                      className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.02]"
+                    >
+                      <Phone className="w-4 h-4 stroke-[2.5]" />
+                      <span>Call Customer ({sharedTrip.riderPhone || '+91 98101 23456'})</span>
+                    </a>
+                  </div>
+
+                  {/* Prominent Pickup & Drop Route Details */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3 text-xs font-light">
+                    <div className="flex items-start gap-3">
+                      <div className="w-7 h-7 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Navigation className="w-4 h-4 text-emerald-300" />
+                      </div>
+                      <div>
+                        <strong className="text-emerald-300 font-mono uppercase text-[10px] block tracking-wider font-medium">Pickup Point (Navigate Here):</strong>
+                        <span className="text-white text-sm font-medium">{sharedTrip.pickup}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3 pt-3 border-t border-white/[0.06]">
+                      <div className="w-7 h-7 rounded-xl bg-teal-500/20 border border-teal-500/30 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <MapPin className="w-4 h-4 text-teal-300" />
+                      </div>
+                      <div>
+                        <strong className="text-teal-300 font-mono uppercase text-[10px] block tracking-wider font-medium">Destination:</strong>
+                        <span className="text-white text-sm font-medium">{sharedTrip.destination}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -550,7 +618,7 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
                   <form onSubmit={handleDriverVerifyPickup} className="p-4 sm:p-5 rounded-2xl bg-white/[0.03] border border-emerald-500/30 space-y-3">
                     <div className="flex justify-between items-center text-xs">
                       <div>
-                        <span className="font-medium text-white block">Enter Rider's Pickup OTP:</span>
+                        <span className="font-semibold text-white block">Enter Rider's Pickup OTP:</span>
                         <span className="text-white/40 text-[11px] font-light">Ask {sharedTrip.riderName} for 4-digit code upon arrival</span>
                       </div>
                       <button
@@ -580,7 +648,7 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
 
                       <button
                         type="submit"
-                        className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-emerald-500/90 to-teal-500/90 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-xs rounded-2xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/15 whitespace-nowrap transition-all"
+                        className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-xs rounded-2xl flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/20 whitespace-nowrap transition-all"
                       >
                         <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
                         <span>Verify & Start Trip</span>
@@ -720,35 +788,70 @@ export const DriverRadarView: React.FC<DriverRadarViewProps> = ({
                 </div>
               ) : (
                 /* ==================== ACTIVE AUCTION & BID SUBMISSION BOX ==================== */
-                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/10 space-y-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-medium text-base text-white">
-                          {sharedTrip?.riderName || 'Alex Rider'}
+                <div className="p-6 rounded-3xl bg-white/[0.02] border border-white/10 space-y-5 animate-fade-in shadow-xl">
+                  {/* Prominent Customer Details Header */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/35 flex items-center justify-center text-emerald-300 font-bold text-xl shadow-md">
+                        {(sharedTrip?.riderName || 'Customer').charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] font-mono uppercase bg-emerald-500/15 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/25 font-medium tracking-wider">
+                            Verified Customer Request
+                          </span>
+                          <span className="text-[10px] font-mono text-amber-300 bg-white/[0.04] px-2 py-0.5 rounded-full border border-white/10">
+                            ★ 4.95 Rating
+                          </span>
+                        </div>
+                        <h4 className="font-bold text-lg sm:text-xl text-white tracking-wide mt-1">
+                          {sharedTrip?.riderName || 'Customer'}
                         </h4>
-                        <span className="text-[11px] font-light text-amber-300 bg-white/[0.04] px-2.5 py-0.5 rounded-full border border-white/10">
-                          ★ 4.95 Rating
+                        <span className="text-xs text-slate-400 font-mono">
+                          {sharedTrip?.riderPhone || '+91 98101 23456'}
                         </span>
                       </div>
-                      <p className="text-xs text-white/60 font-light mt-1.5">
-                        <strong className="text-white/80 font-normal">Route:</strong> {sharedTrip?.pickup || 'Connaught Place, Inner Circle'} → {sharedTrip?.destination || 'Terminal 3, IGI Airport'}
-                      </p>
-                      <p className="text-[11px] text-white/40 font-light mt-0.5">
-                        {sharedTrip?.stops && sharedTrip.stops.length > 0 
-                          ? `${sharedTrip.stops.length} Scheduled Halt (${sharedTrip.stops[0].address})`
-                          : 'Direct Non-Stop Route'}
-                      </p>
                     </div>
 
-                    <span className="text-[10px] font-mono text-teal-300 bg-teal-500/10 px-2.5 py-1 rounded-full border border-teal-500/20 font-light whitespace-nowrap">
-                      ACTIVE RADAR
+                    <span className="text-[10px] font-mono text-teal-300 bg-teal-500/10 px-3 py-1 rounded-full border border-teal-500/20 font-medium whitespace-nowrap flex items-center gap-1.5 shadow-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span>
+                      <span>ACTIVE RADAR</span>
                     </span>
                   </div>
 
+                  {/* Route Card: Pickup and Drop clearly highlighted */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Navigation className="w-3.5 h-3.5 text-emerald-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[10px] font-mono uppercase text-emerald-400 block tracking-wider font-medium">Pickup Location</span>
+                        <p className="text-sm font-semibold text-white truncate mt-0.5">{sharedTrip?.pickup || 'Pickup location'}</p>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-white/[0.06] pt-3 flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-lg bg-teal-500/15 border border-teal-500/30 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <MapPin className="w-3.5 h-3.5 text-teal-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[10px] font-mono uppercase text-teal-400 block tracking-wider font-medium">Drop Destination</span>
+                        <p className="text-sm font-semibold text-white truncate mt-0.5">{sharedTrip?.destination || 'Drop location'}</p>
+                      </div>
+                    </div>
+
+                    {sharedTrip?.stops && sharedTrip.stops.length > 0 && (
+                      <div className="text-[11px] text-white/50 font-light pt-2 border-t border-white/[0.04]">
+                        • {sharedTrip.stops.length} Scheduled Halt: {sharedTrip.stops[0].address}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Rider Note */}
-                  <div className="p-3.5 rounded-2xl bg-white/[0.03] text-xs text-white/70 border border-white/10 font-light">
-                    <span className="text-white/40">Rider Special Expectation:</span> "{sharedTrip?.specialNotes || 'Need clean empty boot space for 2 bags. AC on high.'}"
+                  <div className="p-3.5 rounded-2xl bg-white/[0.02] text-xs text-white/70 border border-white/[0.08] font-light">
+                    <span className="text-white/40 font-mono text-[10px] uppercase block mb-1">Rider Special Expectation:</span>
+                    <span className="italic text-white/90">"{sharedTrip?.specialNotes || 'Need clean empty boot space for 2 bags. AC on high.'}"</span>
                   </div>
 
                   {/* Bid Submission Form (Flow 2) */}

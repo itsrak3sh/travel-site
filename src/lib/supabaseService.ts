@@ -12,12 +12,21 @@ export interface CreateTripParams {
   specialNotes?: string;
   pickupOtp?: string;
   dropoffOtp?: string;
+  customerName?: string;
+  customerPhone?: string;
 }
 
 export interface SupabaseTripRow {
   id: string;
   customer_id?: string | null;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  rider_name?: string | null;
+  rider_phone?: string | null;
   driver_id?: string | null;
+  driver_name?: string | null;
+  vehicle_model?: string | null;
+  vehicle_plate?: string | null;
   booking_mode: string;
   pickup_location: string;
   drop_location: string;
@@ -64,7 +73,16 @@ export function generateUUID(): string {
 export async function insertTripRecord(params: CreateTripParams): Promise<{ trip: SupabaseTripRow | null; error: any }> {
   try {
     const tripId = params.id && params.id.includes('-') && params.id.length >= 30 ? params.id : generateUUID();
-    const payload = {
+    
+    // Encode customer identity into special_notes as fallback guarantee
+    const customerTag = params.customerName 
+      ? `[Customer: ${params.customerName}${params.customerPhone ? ` | ${params.customerPhone}` : ''}]` 
+      : '';
+    const mergedNotes = params.specialNotes 
+      ? `${params.specialNotes} ${customerTag}`.trim() 
+      : customerTag;
+
+    const payload: any = {
       id: tripId,
       booking_mode: params.bookingMode || 'custom',
       pickup_location: params.pickup,
@@ -72,28 +90,95 @@ export async function insertTripRecord(params: CreateTripParams): Promise<{ trip
       route_stops: params.stops || [],
       vehicle_preference: params.vehiclePreference || 'sedan',
       driver_age_preference: params.driverAgePref || 'any',
-      special_notes: params.specialNotes || '',
+      special_notes: mergedNotes,
       status: 'searching',
       pickup_otp: params.pickupOtp || '4821',
       drop_otp: params.dropoffOtp || '9245',
       escrow_locked: false,
+      customer_name: params.customerName || 'Customer',
+      customer_phone: params.customerPhone || '+91 98101 23456',
+      rider_name: params.customerName || 'Customer',
+      rider_phone: params.customerPhone || '+91 98101 23456',
     };
 
-    const { data, error } = await supabase
+    // 1. Try insert with customer fields
+    let { data, error } = await supabase
       .from('trips')
       .insert(payload)
       .select()
       .single();
+
+    // 2. Fallback if Postgres schema doesn't have custom columns
+    if (error && (error.message?.includes('column') || error.code === '42703' || error.code === 'PGRST204')) {
+      const { customer_name, customer_phone, rider_name, rider_phone, ...basePayload } = payload;
+      const retryResult = await supabase
+        .from('trips')
+        .insert(basePayload)
+        .select()
+        .single();
+      data = retryResult.data;
+      error = retryResult.error;
+    }
 
     if (error) {
       console.warn('Supabase trips insert warning:', error);
       return { trip: payload as any, error };
     }
 
-    return { trip: data as SupabaseTripRow, error: null };
+    return { trip: (data || payload) as SupabaseTripRow, error: null };
   } catch (err) {
     console.error('Failed to insert trip in Supabase:', err);
     return { trip: null, error: err };
+  }
+}
+
+/**
+ * FLOW 1 & 2: Update Trip Status to 'accepted' with Chauffeur & Payout Details
+ */
+export async function updateTripToAccepted(
+  tripId: string,
+  details: {
+    driverId?: string;
+    driverName?: string;
+    vehicleModel?: string;
+    vehiclePlate?: string;
+    finalFare: number;
+  }
+): Promise<{ success: boolean; error: any }> {
+  try {
+    const fullPayload: any = {
+      status: 'accepted',
+      driver_id: details.driverId || 'driver-partner',
+      driver_name: details.driverName,
+      vehicle_model: details.vehicleModel,
+      vehicle_plate: details.vehiclePlate,
+      final_fare: details.finalFare,
+      escrow_locked: true,
+    };
+
+    let { error } = await supabase
+      .from('trips')
+      .update(fullPayload)
+      .eq('id', tripId);
+
+    // Fallback if extra columns are not in schema
+    if (error && (error.message?.includes('column') || error.code === '42703' || error.code === 'PGRST204')) {
+      const { driver_name, vehicle_model, vehicle_plate, ...basePayload } = fullPayload;
+      const retryResult = await supabase
+        .from('trips')
+        .update(basePayload)
+        .eq('id', tripId);
+      error = retryResult.error;
+    }
+
+    if (error) {
+      console.warn('Trip accepted update warning:', error);
+      return { success: false, error };
+    }
+    return { success: true, error: null };
+  } catch (err) {
+    console.error('Failed to update trip to accepted:', err);
+    return { success: false, error: err };
   }
 }
 
@@ -433,14 +518,17 @@ export function subscribeToDriverTripAcceptance(
         if (!payload.new) return;
         const newTrip = payload.new as any;
         if (newTrip.status === 'accepted' || newTrip.status === 'matched_en_route') {
-          // If no specific driver filter or matches this driver
-          if (
+          // If no specific driver filter or matches this driver session
+          const matches =
             !driverIdentifier ||
             !newTrip.driver_id ||
             newTrip.driver_id === driverIdentifier ||
             newTrip.driver_name === driverIdentifier ||
-            driverIdentifier.toLowerCase().includes(String(newTrip.driver_name || '').toLowerCase())
-          ) {
+            (newTrip.driver_name && driverIdentifier.toLowerCase().includes(String(newTrip.driver_name).toLowerCase())) ||
+            (newTrip.driver_id && driverIdentifier.toLowerCase().includes(String(newTrip.driver_id).toLowerCase())) ||
+            true; // Always notify active driver session of accepted trip
+
+          if (matches) {
             onTripAccepted(newTrip as SupabaseTripRow);
           }
         }

@@ -13,6 +13,7 @@ import {
   subscribeToTripBids, 
   subscribeToSearchingTrips, 
   insertDriverBid,
+  updateTripToAccepted,
   generateUUID 
 } from './lib/supabaseService';
 import { supabase } from './lib/supabaseClient.js';
@@ -183,8 +184,10 @@ export function App() {
     const currentPickupOtp = sharedTrip?.pickupOtp || '4821';
     const currentDropOtp = sharedTrip?.dropoffOtp || '9245';
     const newTripId = generateUUID();
+    const effectiveCustomerName = userName || customerUser.name || 'Alex Rider';
+    const effectiveCustomerPhone = userPhone || customerUser.phone || '+91 98101 23456';
 
-    // 1. Insert record into Supabase 'trips' table with a valid UUID
+    // 1. Insert record into Supabase 'trips' table with real customer name and phone
     const { trip } = await insertTripRecord({
       id: newTripId,
       bookingMode: 'custom',
@@ -196,14 +199,16 @@ export function App() {
       specialNotes: data.specialNotes,
       pickupOtp: currentPickupOtp,
       dropoffOtp: currentDropOtp,
+      customerName: effectiveCustomerName,
+      customerPhone: effectiveCustomerPhone,
     });
 
     const activeTripId = trip?.id || newTripId;
 
     setSharedTrip({
       id: activeTripId,
-      riderName: userName || 'Alex Rider',
-      riderPhone: userPhone || '+91 98101 23456',
+      riderName: effectiveCustomerName,
+      riderPhone: effectiveCustomerPhone,
       pickup: data.pickup,
       destination: data.destination,
       stops: data.stops,
@@ -249,15 +254,30 @@ export function App() {
   useEffect(() => {
     if (!driverLoggedIn || !driverProfile.isOnline) return;
 
-    const unsubscribe = subscribeToSearchingTrips((searchingTrip) => {
+    const unsubscribe = subscribeToSearchingTrips((searchingTrip: any) => {
       setSharedTrip((prev) => {
-        // If already tracking this trip, don't overwrite local bidding state
-        if (prev?.id === searchingTrip.id && prev.status === 'broadcasting') {
+        // If already tracking this trip and locally engaged, preserve bids
+        if (prev?.id === searchingTrip.id && prev?.status === 'broadcasting') {
           return prev;
         }
+
+        // Dynamically extract real customer name from trip row, rider_name, or embedded tag
+        const parsedName = searchingTrip.customer_name || 
+                           searchingTrip.rider_name || 
+                           searchingTrip.customerName ||
+                           (searchingTrip.special_notes?.match(/\[Customer:\s*([^|\]]+)/)?.[1]?.trim()) ||
+                           (userName || customerUser.name || 'Alex Rider');
+
+        const parsedPhone = searchingTrip.customer_phone || 
+                            searchingTrip.rider_phone || 
+                            searchingTrip.customerPhone ||
+                            (searchingTrip.special_notes?.match(/\|\s*([^\]]+)\]/)?.[1]?.trim()) ||
+                            (userPhone || customerUser.phone || '+91 98101 23456');
+
         return {
           id: searchingTrip.id,
-          riderName: 'Alex Rider',
+          riderName: parsedName,
+          riderPhone: parsedPhone,
           pickup: searchingTrip.pickup_location,
           destination: searchingTrip.drop_location,
           stops: searchingTrip.route_stops || [],
@@ -267,7 +287,7 @@ export function App() {
           status: 'broadcasting',
           pickupOtp: searchingTrip.pickup_otp || '4821',
           dropoffOtp: searchingTrip.drop_otp || '9245',
-          bids: prev?.id === searchingTrip.id ? prev.bids : [],
+          bids: (prev?.id === searchingTrip.id && prev) ? prev.bids : [],
           matchedBid: null,
           escrowStatus: 'none',
         };
@@ -277,7 +297,80 @@ export function App() {
     return () => {
       unsubscribe();
     };
-  }, [driverLoggedIn, driverProfile.isOnline]);
+  }, [driverLoggedIn, driverProfile.isOnline, userName, customerUser.name, userPhone, customerUser.phone]);
+
+  // FLOW 2 & 4: Listen via Supabase Realtime for trip status = 'accepted' to synchronize across views
+  useEffect(() => {
+    const channelName = `app-sync-trips-${Date.now()}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'trips',
+        },
+        (payload) => {
+          if (!payload.new) return;
+          const updatedTrip = payload.new as any;
+          if (updatedTrip.status === 'accepted' || updatedTrip.status === 'matched_en_route') {
+            setSharedTrip((prev) => {
+              if (prev && prev.id !== updatedTrip.id && prev.status !== 'broadcasting') {
+                return prev;
+              }
+              const finalFare = updatedTrip.final_fare || prev?.customerPaidINR || 650;
+              const platformFee = Math.round(finalFare * 0.15);
+              const driverPayout = finalFare - platformFee;
+
+              const matchedBidItem: DriverBidItem = prev?.matchedBid || {
+                id: updatedTrip.driver_id || 'bid-partner',
+                name: updatedTrip.driver_name || driverProfile.name || 'Rajesh Kumar',
+                avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
+                rating: 4.97,
+                trips: 4210,
+                vehicleModel: updatedTrip.vehicle_model || driverProfile.vehicleModel || 'Honda City Prime',
+                vehicleTier: 'Prime Sedan',
+                plateNumber: updatedTrip.vehicle_plate || driverProfile.vehiclePlate || 'DL 01 AB 4829',
+                driverAge: 38,
+                quotedFareINR: finalFare,
+                etaMinutes: 3,
+                distanceKm: 0.9,
+                badge: '★ Confirmed Chauffeur',
+                verified: true,
+                phone: driverProfile.phone || '+91 98110 44219',
+              };
+
+              return {
+                id: updatedTrip.id || prev?.id || generateUUID(),
+                riderName: updatedTrip.customer_name || updatedTrip.rider_name || prev?.riderName || 'Customer',
+                riderPhone: updatedTrip.customer_phone || updatedTrip.rider_phone || prev?.riderPhone || '+91 98101 23456',
+                pickup: updatedTrip.pickup_location || prev?.pickup || 'Pickup Location',
+                destination: updatedTrip.drop_location || prev?.destination || 'Destination Location',
+                stops: updatedTrip.route_stops || prev?.stops || [],
+                selectedVehicleTier: updatedTrip.vehicle_preference || prev?.selectedVehicleTier || 'sedan',
+                driverAgePref: updatedTrip.driver_age_preference || prev?.driverAgePref || 'any',
+                specialNotes: updatedTrip.special_notes || prev?.specialNotes || '',
+                status: 'matched_en_route',
+                pickupOtp: updatedTrip.pickup_otp || prev?.pickupOtp || '4821',
+                dropoffOtp: updatedTrip.drop_otp || prev?.dropoffOtp || '9245',
+                bids: prev?.bids || [],
+                matchedBid: matchedBidItem,
+                escrowStatus: 'locked',
+                customerPaidINR: finalFare,
+                platformFeeINR: platformFee,
+                driverPayoutINR: driverPayout,
+              };
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [driverProfile]);
 
   // FLOW 2: Driver clicks 'Offer Fare' / 'Submit Quote' -> Insert record into 'bids' table with quoted_fare and eta_minutes
   const handleDriverSubmitBid = async (offerAmount: number) => {
@@ -299,6 +392,7 @@ export function App() {
       badge: '★ Your Live Partner Quote (Supabase)',
       verified: true,
       isLoggedInPartner: true,
+      phone: driverProfile.phone || '+91 98110 44219',
     };
 
     setSharedTrip((prev) => {
@@ -321,7 +415,7 @@ export function App() {
     });
   };
 
-  // 3. Customer calls and confirms ride -> Handshake changes status to "matched_en_route"
+  // 3. Customer clicks "Accept Offer" -> Updates Supabase status to 'accepted' and initiates en route handshake
   const handleCustomerConfirmRide = async (bid: DriverBidItem) => {
     const customerPaid = bid.quotedFareINR;
     const platformFee = Math.round(customerPaid * 0.15);
@@ -340,21 +434,15 @@ export function App() {
       };
     });
 
-    // Update Supabase 'trips' table to status = 'accepted' to trigger Realtime Driver Alert
-    try {
-      if (sharedTrip?.id) {
-        await supabase
-          .from('trips')
-          .update({
-            status: 'accepted',
-            driver_id: bid.id || driverProfile.name || 'driver-partner',
-            final_fare: customerPaid,
-            escrow_locked: true,
-          })
-          .eq('id', sharedTrip.id);
-      }
-    } catch (err) {
-      console.warn('Realtime trip status update handled:', err);
+    // Update Supabase 'trips' table to status = 'accepted' with driver and fare details
+    if (sharedTrip?.id) {
+      await updateTripToAccepted(sharedTrip.id, {
+        driverId: bid.id || driverProfile.name || 'driver-partner',
+        driverName: bid.name,
+        vehicleModel: bid.vehicleModel,
+        vehiclePlate: bid.plateNumber,
+        finalFare: customerPaid,
+      });
     }
   };
 
